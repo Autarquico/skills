@@ -18,9 +18,17 @@ Methodology and tooling for engineering high-quality Claude Code skills. Phase-b
 
 (Forked from SkillForge v5.1, rebranded for Autarquico internal use.)
 
+```bash
+TMP=$(mktemp -d) && git clone --depth 1 --filter=blob:none --no-checkout https://github.com/Autarquico/skills.git "$TMP" && git -C "$TMP" sparse-checkout set --cone autarqui-skillfactory && git -C "$TMP" checkout main && mkdir -p ~/.claude/skills && cp -r "$TMP/autarqui-skillfactory" ~/.claude/skills/ && rm -rf "$TMP" && echo "✓ installed at ~/.claude/skills/autarqui-skillfactory"
+```
+
 ### [`autarqui-dockerfiledoc`](./autarqui-dockerfiledoc)
 
 Dockerfile analyzer. Reviews any Dockerfile and produces an optimized, security-hardened, production-ready version with explanations covering layer efficiency, caching, base image selection, and MLOps patterns.
+
+```bash
+TMP=$(mktemp -d) && git clone --depth 1 --filter=blob:none --no-checkout https://github.com/Autarquico/skills.git "$TMP" && git -C "$TMP" sparse-checkout set --cone autarqui-dockerfiledoc && git -C "$TMP" checkout main && mkdir -p ~/.claude/skills && cp -r "$TMP/autarqui-dockerfiledoc" ~/.claude/skills/ && rm -rf "$TMP" && echo "✓ installed at ~/.claude/skills/autarqui-dockerfiledoc"
+```
 
 ## Installing a skill manually
 
