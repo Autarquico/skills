@@ -1,0 +1,49 @@
+{
+  "project_id": "demo-anuncio-oferta",
+  "title": "demo-anuncio-oferta",
+  "duration_s": 30,
+  "aspect_ratio": "9:16",
+  "fps": 30,
+  "style": "autarqui-co",
+  "music": null,
+  "scenes": [
+    {
+      "id": "s01_hero",
+      "type": "hero-title",
+      "t_in_s": 0,
+      "t_out_s": 3,
+      "props": {
+        "eyebrow": "TODO — eyebrow",
+        "product_wordmark": "TODO",
+        "layout": "vertical"
+      }
+    },
+    {
+      "id": "s02_text",
+      "type": "text-card",
+      "t_in_s": 3,
+      "t_out_s": 27,
+      "props": {
+        "lines": [
+          "Línea 1",
+          "Línea 2"
+        ],
+        "emphasis_line": 1
+      }
+    },
+    {
+      "id": "s99_close",
+      "type": "closing-card",
+      "t_in_s": 27,
+      "t_out_s": 30,
+      "props": {
+        "logo_path": "TODO/logo.png",
+        "brand_wordmark": "autarqui",
+        "brand_wordmark_ext": ".co"
+      }
+    }
+  ],
+  "audio_mix": {
+    "music": null
+  }
+}

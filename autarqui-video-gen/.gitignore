@@ -1,0 +1,52 @@
+# Local config (with API keys)
+config/api-keys.yaml
+config/local.yaml
+
+# Cache (regenerable, keep dir markers)
+cache/pixabay/*
+cache/pexels/*
+cache/unsplash/*
+cache/fonts/*
+cache/models/*
+cache/local-video/*
+!cache/*/.gitkeep
+
+# Node
+compositions/node_modules/
+compositions/out/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project workspaces — exclude user's, keep canonical demos
+compositions/src/projects/*/
+!compositions/src/projects/README.md
+!compositions/src/projects/.gitkeep
+!compositions/src/projects/delta-launch-demo/
+!compositions/src/projects/delta-vision-60s/
+!compositions/src/projects/validation-test/
+!compositions/src/projects/demo-foto-instagram/
+!compositions/src/projects/demo-testimonial/
+!compositions/src/projects/demo-anuncio-oferta/
+!compositions/src/projects/demo-tutorial-60s/
+!compositions/src/projects/demo-antes-despues/
+!compositions/src/projects/demo-newsletter/
+!compositions/src/projects/demo-podcast-resumen/
+!compositions/src/projects/demo-data-viz/
+!compositions/src/projects/demo-lyric/
+!compositions/src/projects/demo-how-it-works/
+!compositions/src/projects/demo-local-video/
+
+# Public asset folders — same: exclude user's, keep canonical demos
+compositions/public/*/
+!compositions/public/.gitkeep
+!compositions/public/delta-launch-demo/
+!compositions/public/delta-vision-60s/
+!compositions/public/validation-test/
+!compositions/public/demo-local-video/

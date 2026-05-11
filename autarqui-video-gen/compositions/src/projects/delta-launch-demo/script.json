@@ -1,0 +1,90 @@
+{
+  "project_id": "delta-launch-demo",
+  "title": "Delta launch — token-driven demo (validates Day 4 end-to-end)",
+  "duration_s": 30,
+  "aspect_ratio": "9:16",
+  "fps": 30,
+  "style": "autarqui-co",
+  "music": "delta-launch-demo/music.mp3",
+  "scenes": [
+    {
+      "id": "s01_brand",
+      "type": "hero-title",
+      "t_in_s": 0,
+      "t_out_s": 3,
+      "props": {
+        "umbrella_logo": "delta-launch-demo/alpha-logo.png",
+        "umbrella_wordmark": "autarqui",
+        "umbrella_wordmark_ext": ".co",
+        "eyebrow": "PRESENTA",
+        "product_logo": "delta-launch-demo/delta-logo.png",
+        "product_wordmark": "DELTA",
+        "layout": "vertical"
+      }
+    },
+    {
+      "id": "s02_hero",
+      "type": "text-card",
+      "t_in_s": 3,
+      "t_out_s": 9,
+      "props": {
+        "lines": [
+          "Tu negocio sabe más",
+          "de lo que crees.",
+          "El problema es que no puedes preguntarle."
+        ],
+        "emphasis_line": 2
+      }
+    },
+    {
+      "id": "s03_item01",
+      "type": "list-item",
+      "t_in_s": 9,
+      "t_out_s": 15,
+      "props": {
+        "numeral": "01",
+        "text": "Ese cliente que no ha vuelto desde febrero."
+      }
+    },
+    {
+      "id": "s04_item02",
+      "type": "list-item",
+      "t_in_s": 15,
+      "t_out_s": 21,
+      "props": {
+        "numeral": "02",
+        "text": "La factura que vence el martes y nadie ha mirado."
+      }
+    },
+    {
+      "id": "s05_master",
+      "type": "master-quote",
+      "t_in_s": 21,
+      "t_out_s": 27,
+      "props": {
+        "text": "autarqui.co hace empresas más autosuficientes."
+      }
+    },
+    {
+      "id": "s06_close",
+      "type": "closing-card",
+      "t_in_s": 27,
+      "t_out_s": 30,
+      "props": {
+        "logo_path": "delta-launch-demo/delta-logo.png",
+        "product_wordmark": "DELTA",
+        "brand_wordmark": "autarqui",
+        "brand_wordmark_ext": ".co"
+      }
+    }
+  ],
+  "audio_mix": {
+    "music": {
+      "fade_in_at_s": 0.5,
+      "fade_in_duration_s": 2,
+      "trim_to_end": true,
+      "end_at_s": 27,
+      "fade_out_duration_s": 0
+    }
+  }
+}

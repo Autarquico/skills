@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+# avg — autarqui-video-gen CLI
+#
+# Subcommands:
+#   avg install [--all | --tier-a | --tools <name>...]   Install dependencies
+#   avg doctor                                            Health check
+#   avg new <id> [--style <slug>] [--aspect 9:16|16:9|1:1] [--duration 60]
+#                                                          Create new project skeleton
+#   avg render <id>                                       Render project to MP4
+#   avg list                                              List projects, styles, scenes
+#   avg style validate <slug>                             Check a visual-style.md parses
+#   avg style resolve <slug> --to <path>                  Generate tokens.ts for a project
+#   avg open                                              Open the skill folder in Finder
+
+set -euo pipefail
+
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPTS_DIR="$SKILL_DIR/scripts"
+COMPOSITIONS_DIR="$SKILL_DIR/compositions"
+VENV_DIR="$SKILL_DIR/.venv"
+
+# Activate skill-local venv if present (so PyYAML etc. just work)
+if [ -d "$VENV_DIR" ]; then
+  export PATH="$VENV_DIR/bin:$PATH"
+fi
+
+USAGE() {
+  cat <<EOF
+avg — autarqui-video-gen CLI
+
+Usage:
+  avg install [--all | --tier-a | --tool <name>]    Install deps (default --tier-a)
+  avg doctor                                         Health check
+  avg new <id> [opts]                                Create project skeleton
+        --style <slug>      (default: autarqui-co)
+        --aspect 9:16|16:9|1:1|4:5  (default: 9:16)
+        --duration <s>      (default: 60)
+        --music <path>      Music file to copy in (relative to home or absolute)
+  avg render <id>                                    Render to compositions/out/<id>.mp4
+  avg list [styles|scenes|projects|all]              Inventory
+  avg style validate <slug>                          Validate frontmatter
+  avg style resolve <slug> --to <file>               YAML → TypeScript tokens
+  avg open                                           Open skill folder
+
+Examples:
+  avg install --all
+  avg new sigma-launch-30s --style autarqui-co --duration 30
+  avg render sigma-launch-30s
+EOF
+}
+
+CMD="${1:-help}"
+shift || true
+
+case "$CMD" in
+  help|--help|-h|"")
+    USAGE
+    ;;
+
+  install)
+    bash "$SCRIPTS_DIR/install.sh" "$@"
+    ;;
+
+  doctor)
+    bash "$SCRIPTS_DIR/doctor.sh"
+    ;;
+
+  new)
+    [ "$#" -ge 1 ] || { echo "ERROR: avg new <id> [opts]"; exit 1; }
+    python3 "$SCRIPTS_DIR/lib/new_project.py" "$@"
+    ;;
+
+  render)
+    [ "$#" -ge 1 ] || { echo "ERROR: avg render <id>"; exit 1; }
+    PROJECT_ID="$1"
+    if [ ! -d "$COMPOSITIONS_DIR/src/projects/$PROJECT_ID" ]; then
+      echo "ERROR: project '$PROJECT_ID' not found at $COMPOSITIONS_DIR/src/projects/"
+      echo "Available:"
+      ls "$COMPOSITIONS_DIR/src/projects/" 2>/dev/null | sed 's/^/  /'
+      exit 1
+    fi
+    mkdir -p "$COMPOSITIONS_DIR/out"
+    cd "$COMPOSITIONS_DIR"
+    npx remotion render src/index.tsx "$PROJECT_ID" "./out/$PROJECT_ID.mp4"
+    echo
+    echo "OK: $COMPOSITIONS_DIR/out/$PROJECT_ID.mp4"
+    ;;
+
+  list)
+    KIND="${1:-all}"
+    if [ "$KIND" = "styles" ] || [ "$KIND" = "all" ]; then
+      echo "STYLES:"
+      ls "$SKILL_DIR/styles/" 2>/dev/null | sed -E 's/\.visual-style\.md$//' | sed 's/^/  - /'
+      echo
+    fi
+    if [ "$KIND" = "scenes" ] || [ "$KIND" = "all" ]; then
+      echo "SCENES (compositions/src/scenes/index.ts):"
+      grep -E '^\s*"[a-z-]+":\s*\{' "$COMPOSITIONS_DIR/src/scenes/index.ts" 2>/dev/null \
+        | sed -E 's/.*"([a-z-]+)".*/  - \1/' | sort -u
+      echo
+    fi
+    if [ "$KIND" = "projects" ] || [ "$KIND" = "all" ]; then
+      echo "PROJECTS:"
+      shopt -s nullglob
+      for d in "$COMPOSITIONS_DIR/src/projects/"*/; do
+        echo "  - $(basename "$d")"
+      done
+      echo
+    fi
+    ;;
+
+  style)
+    SUB="${1:-}"; shift || true
+    case "$SUB" in
+      validate)
+        [ "$#" -ge 1 ] || { echo "ERROR: avg style validate <slug>"; exit 1; }
+        python3 "$SCRIPTS_DIR/lib/resolve_style.py" --slug "$1" --validate
+        ;;
+      resolve)
+        python3 "$SCRIPTS_DIR/lib/resolve_style.py" "$@"
+        ;;
+      *)
+        echo "ERROR: avg style {validate|resolve}"
+        exit 1
+        ;;
+    esac
+    ;;
+
+  open)
+    if [ "$(uname -s)" = "Darwin" ]; then
+      open "$SKILL_DIR"
+    else
+      xdg-open "$SKILL_DIR" 2>/dev/null || echo "$SKILL_DIR"
+    fi
+    ;;
+
+  local-video)
+    SUB="${1:-}"; shift || true
+    case "$SUB" in
+      generate|text-to-video)
+        PYTHONUNBUFFERED=1 python3 -u "$SKILL_DIR/tools/video-gen/local-ltx.py" text-to-video "$@"
+        ;;
+      image-to-video)
+        PYTHONUNBUFFERED=1 python3 -u "$SKILL_DIR/tools/video-gen/local-ltx.py" image-to-video "$@"
+        ;;
+      *)
+        echo "Usage: avg local-video {generate|text-to-video|image-to-video} [opts]"
+        echo "Run \`avg local-video generate --help\` for options."
+        exit 1
+        ;;
+    esac
+    ;;
+
+  *)
+    echo "Unknown command: $CMD"
+    echo
+    USAGE
+    exit 1
+    ;;
+esac

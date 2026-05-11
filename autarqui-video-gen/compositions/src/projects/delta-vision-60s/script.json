@@ -1,0 +1,42 @@
+{
+  "project_id": "delta-vision-60s",
+  "title": "Delta — La visión silenciosa (60s vertical)",
+  "duration_s": 60,
+  "aspect_ratio": "9:16",
+  "fps": 30,
+  "style": "autarqui-co",
+  "music": "delta-vision-60s/music.mp3",
+  "scenes": [
+    { "id": "s01", "type": "hero-title", "t_in_s": 0, "t_out_s": 3,
+      "props": { "umbrella_logo": "delta-vision-60s/alpha-logo.png", "umbrella_wordmark": "autarqui", "umbrella_wordmark_ext": ".co", "eyebrow": "PRESENTA", "product_logo": "delta-vision-60s/delta-logo.png", "product_wordmark": "DELTA", "layout": "vertical" } },
+    { "id": "s02", "type": "text-card", "t_in_s": 3, "t_out_s": 10,
+      "props": { "lines": ["Tu empresa funciona.", "Pero ¿quién la ve", "entera?"], "emphasis_line": 1 } },
+    { "id": "s03", "type": "list-item", "t_in_s": 10, "t_out_s": 16,
+      "props": { "numeral": "01", "text": "500 personas haciendo su trabajo." } },
+    { "id": "s04", "type": "list-item", "t_in_s": 16, "t_out_s": 22,
+      "props": { "numeral": "02", "text": "12 sistemas guardando los datos." } },
+    { "id": "s05", "type": "list-item", "t_in_s": 22, "t_out_s": 28,
+      "props": { "numeral": "03", "text": "Cero visión de conjunto." } },
+    { "id": "s06", "type": "text-card", "t_in_s": 28, "t_out_s": 33,
+      "props": { "lines": ["Hasta que alguien", "observa todo."], "emphasis_line": 1 } },
+    { "id": "s07", "type": "mark-reveal", "t_in_s": 33, "t_out_s": 39,
+      "props": { "logo_path": "delta-vision-60s/delta-logo.png", "wordmark": "DELTA", "wordmark_case": "uppercase", "tagline": "El observador silencioso." } },
+    { "id": "s08", "type": "text-card", "t_in_s": 39, "t_out_s": 46,
+      "props": { "lines": ["Tú preguntas.", "Delta responde", "con todo lo que ya sabes."], "emphasis_line": 1 } },
+    { "id": "s09", "type": "stat-reveal", "t_in_s": 46, "t_out_s": 52,
+      "props": { "value": "< 1 s", "label": "una pregunta · una respuesta · todo el negocio", "eyebrow": "EL TIEMPO QUE TARDA" } },
+    { "id": "s10", "type": "master-quote", "t_in_s": 52, "t_out_s": 57,
+      "props": { "text": "autarqui.co hace empresas más autosuficientes." } },
+    { "id": "s11", "type": "closing-card", "t_in_s": 57, "t_out_s": 60,
+      "props": { "logo_path": "delta-vision-60s/delta-logo.png", "product_wordmark": "DELTA", "brand_wordmark": "autarqui", "brand_wordmark_ext": ".co" } }
+  ],
+  "audio_mix": {
+    "music": {
+      "fade_in_at_s": 0.5,
+      "fade_in_duration_s": 2.5,
+      "trim_to_end": true,
+      "end_at_s": 57,
+      "fade_out_duration_s": 0
+    }
+  }
+}

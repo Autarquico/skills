@@ -1,0 +1,22 @@
+# autarqui-video-gen — API keys
+# Copy to api-keys.yaml and fill in. All keys are FREE (signup web).
+
+# Pixabay — música, imágenes, video. Free, 100 req/min.
+# https://pixabay.com/api/docs/
+pixabay: ""
+
+# Pexels — fotos editoriales (mejor que Pixabay), video stock. Free, 200 req/h.
+# https://www.pexels.com/api/
+pexels: ""
+
+# Unsplash — fotos lifestyle premium. Free demo: 50 req/h, 5k req/h on production.
+# https://unsplash.com/developers
+unsplash: ""
+
+# Freesound — sound effects (CC license). Free, requires OAuth or API key.
+# https://freesound.org/help/developers/
+freesound: ""
+
+# LottieFiles — animaciones Lottie (no necesita key para descargar; key opcional para search avanzado).
+# https://lottiefiles.com/api
+lottiefiles: ""

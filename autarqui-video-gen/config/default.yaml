@@ -1,0 +1,31 @@
+# autarqui-video-gen — default configuration
+# Override per-user by creating config/local.yaml (gitignored).
+
+# Where rendered videos land. Each project gets a subdir.
+output_folder: ~/videos
+
+# Default visual style if user doesn't specify
+default_style: autarqui-co
+
+# Default aspect ratio when user doesn't specify
+default_aspect_ratio: "9:16"  # one of: 9:16, 16:9, 1:1, 4:5
+
+# Default fps
+default_fps: 30
+
+# Voice provider preference for narration scenes
+voice:
+  provider: piper            # piper | coqui-xtts | none
+  language: es               # es | en
+  voice_id: es_ES-davefx-medium
+
+# Asset cache locations (no need to redownload across projects)
+cache:
+  pixabay: ~/.claude/skills/autarqui-video-gen/cache/pixabay
+  pexels:  ~/.claude/skills/autarqui-video-gen/cache/pexels
+  unsplash: ~/.claude/skills/autarqui-video-gen/cache/unsplash
+  fonts:   ~/.claude/skills/autarqui-video-gen/cache/fonts
+  models:  ~/.claude/skills/autarqui-video-gen/cache/models
+
+# Music library — user drops own tracks here, asset director checks before APIs
+music_library: ~/music_library
