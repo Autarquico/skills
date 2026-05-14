@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "autarqui-branding-image-generator"
+abstract: "AI image generation skill for Claude (Code CLI + Desktop) with a local brand inventory. Built on Gemini Nano Banana via MCP."
+authors:
+  - name: "autarqui.co"
+repository-code: "https://github.com/autarqui/autarqui-branding-image-generator"
+url: "https://autarqui.co"
+license: MIT
+version: "2.0.0"
+date-released: "2026-05-12"
+keywords:
+  - ai-image-generation
+  - claude-code
+  - claude-desktop
+  - gemini
+  - prompt-engineering
+  - brand-inventory
+  - mcp
