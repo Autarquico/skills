@@ -1,0 +1,35 @@
+codename: {{ codename }}
+display_name: "{{ display_name }}"
+
+github:
+  repo: {{ org }}/{{ repo_name }}
+  project:
+    owner: {{ project_owner }}
+    owner_type: {{ owner_type }}
+    number: {{ project_number }}
+  field_ids:
+    status: {{ field_id_status }}
+    priority: {{ field_id_priority }}
+    size: {{ field_id_size }}
+    ticket_type: {{ field_id_ticket_type }}
+
+paths:
+  specs: docs/specs/
+  specs_archive: docs/specs/archive/
+  tracking:
+    status: docs/STATUS.md
+
+agent:
+  language: {{ language }}
+  conventions: AGENT.md
+
+mcp:
+  server: {{ mcp_server }}
+
+sync:
+  archive_on_ship: false
+  default_since_days: 7
+  status_markers:
+    done_this_week: "pm-sync:done-this-week"
+    in_progress: "pm-sync:in-progress"
+    blocked: "pm-sync:blocked"

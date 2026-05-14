@@ -30,6 +30,22 @@ Dockerfile analyzer. Reviews any Dockerfile and produces an optimized, security-
 TMP=$(mktemp -d) && git clone --depth 1 --filter=blob:none --no-checkout https://github.com/Autarquico/skills.git "$TMP" && git -C "$TMP" sparse-checkout set --cone autarqui-dockerfiledoc && git -C "$TMP" checkout main && mkdir -p ~/.claude/skills && cp -r "$TMP/autarqui-dockerfiledoc" ~/.claude/skills/ && rm -rf "$TMP" && echo "✓ installed at ~/.claude/skills/autarqui-dockerfiledoc"
 ```
 
+### [`pm`](./pm)
+
+Sistema PM multi-proyecto. Reconcilia specs (`docs/specs/`), GitHub Projects board y `docs/STATUS.md` vía un `.pm/config.yaml` por repo. Comandos: `/pm sync` (reconciliación día a día), `/pm adopt` (adopta repo existente), `/pm init <codename>` (crea proyecto nuevo: repo + project + scaffolding). Usa GitHub MCP + `gh` CLI. Idioma operativo: español.
+
+```bash
+TMP=$(mktemp -d) && git clone --depth 1 --filter=blob:none --no-checkout https://github.com/Autarquico/skills.git "$TMP" && git -C "$TMP" sparse-checkout set --cone pm && git -C "$TMP" checkout main && mkdir -p ~/.claude/skills && cp -r "$TMP/pm" ~/.claude/skills/ && rm -rf "$TMP" && echo "✓ installed at ~/.claude/skills/pm"
+```
+
+### [`autarqui-branding-image-generator`](./autarqui-branding-image-generator)
+
+AI image generation Creative Director powered by Google Gemini Nano Banana, with a **local brand inventory** at `~/.banana/brands/`. Register a brand once (palette, materials, reference images) and apply it to any generation with `--brand <name>`. Works in Claude Code CLI and Claude Desktop. Python stdlib only — no pip deps. Requires a free Google AI Studio API key.
+
+```bash
+TMP=$(mktemp -d) && git clone --depth 1 --filter=blob:none --no-checkout https://github.com/Autarquico/skills.git "$TMP" && git -C "$TMP" sparse-checkout set --cone autarqui-branding-image-generator && git -C "$TMP" checkout main && mkdir -p ~/.claude/skills && cp -r "$TMP/autarqui-branding-image-generator" ~/.claude/skills/ && rm -rf "$TMP" && bash ~/.claude/skills/autarqui-branding-image-generator/install.sh && echo "✓ installed at ~/.claude/skills/autarqui-branding-image-generator"
+```
+
 ## Installing a skill manually
 
 Clone the whole monorepo, copy the skill folder you want into `~/.claude/skills/`:
