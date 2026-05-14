@@ -14,7 +14,7 @@ allowed-tools:
   - Agent
   - mcp__claude_ai_Github__*
 metadata:
-  version: 1.4.0
+  version: 2.0.0
   author: autarqui
   domains:
     - project-management
@@ -25,6 +25,14 @@ metadata:
 # pm
 
 Sistema PM multi-proyecto para Autarqui. Reconcilia tres planos: specs (`docs/specs/`), board (GitHub Project), tracking (`docs/STATUS.md`).
+
+**Arquitectura:** todos los comandos son scripts Python deterministas (stdlib only) en `scripts/`. Invocados como:
+
+```bash
+python3 ${CLAUDE_SKILL_DIR}/scripts/pm_<comando>.py [args]
+```
+
+Ningún comando es prompt-driven: la lógica vive en código, el modelo solo orquesta. Usa `gh` CLI para hablar con GitHub.
 
 ## Quick Start
 
@@ -106,6 +114,8 @@ Sistema PM multi-proyecto para Autarqui. Reconcilia tres planos: specs (`docs/sp
 
 Reconcilia los tres planos del proyecto.
 
+**Implementación:** `python3 ${CLAUDE_SKILL_DIR}/scripts/pm_sync.py`
+
 ### Invocación
 
 ```bash
@@ -115,8 +125,6 @@ Reconcilia los tres planos del proyecto.
 /pm sync --only board               # solo reconciliar board ← PRs
 /pm sync --only specs               # solo actualizar frontmatter specs
 /pm sync --only status              # solo regenerar STATUS.md
-/pm sync --mark-done 159            # override: forzar issue #159 a Done
-/pm sync --reopen 172               # override: reabrir issue #172
 ```
 
 ### Flujo en 4 pasos
@@ -179,6 +187,8 @@ Modo:    <live | dry-run>
 
 Aplica el sistema PM a un repo existente. Migración no-destructiva.
 
+**Implementación:** `python3 ${CLAUDE_SKILL_DIR}/scripts/pm_adopt.py`
+
 ### Invocación
 
 ```bash
@@ -239,6 +249,8 @@ Siguientes pasos:
 
 Crea proyecto nuevo desde cero.
 
+**Implementación:** `python3 ${CLAUDE_SKILL_DIR}/scripts/pm_init.py <codename>`
+
 ### Invocación
 
 ```bash
@@ -297,6 +309,8 @@ Gestiona specs del proyecto: creación y promoción a issues.
 
 Crea una nueva spec desde el template.
 
+**Implementación:** `python3 ${CLAUDE_SKILL_DIR}/scripts/pm_spec_new.py <slug>`
+
 #### Invocación
 
 ```bash
@@ -344,6 +358,8 @@ Siguiente paso:
 ### `/pm spec adopt <file.md>`
 
 Convierte un markdown genérico (notas, brainstorm, instrucciones informales) en una spec formal dentro del sistema. Interactivo por diseño: el skill propone, el usuario confirma.
+
+**Implementación:** `python3 ${CLAUDE_SKILL_DIR}/scripts/pm_spec_adopt.py <file.md>`
 
 #### Invocación
 
@@ -459,6 +475,8 @@ Siguiente paso:
 
 Convierte una spec draft en issue del GitHub Project.
 
+**Implementación:** `python3 ${CLAUDE_SKILL_DIR}/scripts/pm_spec_to_issue.py <slug>`
+
 #### Invocación
 
 ```bash
@@ -522,6 +540,8 @@ Siguiente paso:
 ## `/pm bots process`
 
 Triage de PRs generados por bots (Dependabot, Renovate, GitHub Actions, etc.). No es un "cleanup" ciego: **procesa** cada PR según su estado — mergea lo seguro, cierra lo obsoleto, deja al humano lo dudoso.
+
+**Implementación:** `python3 ${CLAUDE_SKILL_DIR}/scripts/pm_bots_process.py`
 
 ### Invocación
 
@@ -690,6 +710,8 @@ Siguientes pasos:
 ## `/pm bots review <pr>`
 
 Analiza un PR de major bump y genera un **plan de migración accionable**: extrae breaking changes, los mapea a call sites del repo, y los convierte en una spec con sub-issues trackeables en el board.
+
+**Implementación:** `python3 ${CLAUDE_SKILL_DIR}/scripts/pm_bots_review.py <pr_number>`
 
 Es el puente entre "Dependabot abrió un PR de major que no puedo mergear" y "tengo trabajo formal planificado para migrar".
 
@@ -950,6 +972,11 @@ updated: 2026-05-14
 ---
 
 ## Changelog
+
+### v2.0.0 (2026-05-14)
+- **Migración a scripts deterministas**: los 8 comandos pasan de ser prompt-driven a tener implementación Python en `scripts/` (stdlib only, `gh` CLI para GitHub I/O)
+- Añadido bloque `gh.cleanup` en `.pm/config.yaml` para configurar `/pm bots process`
+- SKILL.md ahora documenta intención + flags; la lógica vive en código
 
 ### v1.4.0 (2026-05-14)
 - Added `/pm bots review <pr>` — analiza major bump, genera plan de migración con call sites, y opcionalmente lo materializa como epic + sub-issues en el board

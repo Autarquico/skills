@@ -42,6 +42,14 @@ sync:
     done_this_week: "pm-sync:done-this-week"
     in_progress: "pm-sync:in-progress"
     blocked: "pm-sync:blocked"
+
+gh:                               # optional, defaults below
+  cleanup:                        # config de /pm bots process
+    bot_authors: [<string>, ...]  # default: dependabot[bot], renovate[bot], github-actions[bot]
+    title_patterns: [<regex>, ...] # default: ^chore\(deps\):, ^chore: bump , ^build\(deps\):
+    stale_days: <integer>         # default 30
+    auto_merge_levels: [<patch|minor|major>, ...]  # default: [patch, minor]
+    delete_branches: <bool>       # default false
 ```
 
 ## Validación

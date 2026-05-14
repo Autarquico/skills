@@ -33,3 +33,17 @@ sync:
     done_this_week: "pm-sync:done-this-week"
     in_progress: "pm-sync:in-progress"
     blocked: "pm-sync:blocked"
+
+gh:
+  cleanup:
+    bot_authors:
+      - "dependabot[bot]"
+      - "renovate[bot]"
+      - "github-actions[bot]"
+    title_patterns:
+      - "^chore\\(deps\\):"
+      - "^chore: bump "
+      - "^build\\(deps\\):"
+    stale_days: 30
+    auto_merge_levels: [patch, minor]
+    delete_branches: false
