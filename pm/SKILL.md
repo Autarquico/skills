@@ -14,7 +14,7 @@ allowed-tools:
   - Agent
   - mcp__claude_ai_Github__*
 metadata:
-  version: 1.0.0
+  version: 1.2.0
   author: autarqui
   domains:
     - project-management
@@ -32,14 +32,19 @@ Sistema PM multi-proyecto para Autarqui. Reconcilia tres planos: specs (`docs/sp
 /pm sync                    # reconcilia board ← PRs, specs ← board, STATUS ← board
 /pm adopt                   # adopta repo existente con scaffolding PM
 /pm init <codename>         # crea proyecto nuevo: repo + project + scaffolding
+/pm spec new <slug>         # crea spec desde template
+/pm spec adopt <file.md>    # convierte markdown genérico en spec formal (interactivo)
+/pm spec to-issue <slug>    # convierte spec draft en issue del board
 ```
 
 ## Triggers
 
-- `/pm sync`, `/pm adopt`, `/pm init`
+- `/pm sync`, `/pm adopt`, `/pm init`, `/pm spec`
 - "sincronizar proyecto", "sync del proyecto"
 - "adoptar repo PM", "inicializar PM"
 - "estado del proyecto", "reconciliar board"
+- "crear spec", "nueva spec", "spec to issue", "convertir spec a issue"
+- "adoptar spec", "formalizar markdown", "convertir notas en spec"
 
 ## Quick Reference
 
@@ -48,6 +53,9 @@ Sistema PM multi-proyecto para Autarqui. Reconcilia tres planos: specs (`docs/sp
 | `/pm sync` | Día a día: reconcilia board ← PRs, specs ← board, STATUS ← board |
 | `/pm adopt` | Adopta repo existente: añade scaffolding PM sin tocar código |
 | `/pm init <codename>` | Crea proyecto nuevo: repo + GitHub Project + scaffolding PM |
+| `/pm spec new <slug>` | Crea spec en `docs/specs/<slug>.md` desde template |
+| `/pm spec adopt <file.md>` | Adopta markdown externo como spec formal (interactivo) |
+| `/pm spec to-issue <slug>` | Convierte spec draft → issue en board, actualiza frontmatter |
 
 ---
 
@@ -275,6 +283,236 @@ README.md
 
 ---
 
+## `/pm spec`
+
+Gestiona specs del proyecto: creación y promoción a issues.
+
+### `/pm spec new <slug>`
+
+Crea una nueva spec desde el template.
+
+#### Invocación
+
+```bash
+/pm spec new auth-refactor                     # título derivado del slug
+/pm spec new auth-refactor --title "Auth Refactor v2"  # título explícito
+/pm spec new auth-refactor --type epic         # override tipo (default: task)
+/pm spec new auth-refactor --priority P0       # override prioridad (default: P1)
+/pm spec new auth-refactor --dry-run           # solo muestra, no crea
+```
+
+#### Pre-flight
+
+- `.pm/config.yaml` existe y es válido
+- `docs/specs/<slug>.md` NO existe (si existe → error)
+- Working tree limpio
+
+#### Comportamiento
+
+1. Leer template de `assets/templates/spec.md`
+2. Sustituir placeholders:
+   - `{{ codename }}` → del config
+   - `{{ title }}` → flag `--title` o derivado del slug (kebab → Title Case)
+   - `{{ today }}` → fecha actual (YYYY-MM-DD)
+3. Aplicar overrides (`--type`, `--priority`, `--size`)
+4. Escribir a `docs/specs/<slug>.md`
+
+#### Output
+
+```
+=== /pm spec new — auth-refactor ===
+
+Spec creada: docs/specs/auth-refactor.md
+  codename: sigma
+  title:    Auth Refactor
+  type:     task
+  status:   draft
+  priority: P1
+
+Siguiente paso:
+  /pm spec to-issue auth-refactor   # cuando esté lista
+```
+
+---
+
+### `/pm spec adopt <file.md>`
+
+Convierte un markdown genérico (notas, brainstorm, instrucciones informales) en una spec formal dentro del sistema. Interactivo por diseño: el skill propone, el usuario confirma.
+
+#### Invocación
+
+```bash
+/pm spec adopt notas-auth.md                   # interactivo
+/pm spec adopt notas-auth.md --slug auth-v2    # slug explícito
+/pm spec adopt notas-auth.md --yes             # acepta todas las propuestas (no interactivo)
+/pm spec adopt https://gist.github.com/.../x   # acepta URL (descarga vía WebFetch)
+/pm spec adopt notas-auth.md --keep-original   # no borra el fichero fuente
+/pm spec adopt notas-auth.md --dry-run         # solo muestra propuesta
+```
+
+#### Pre-flight
+
+- `.pm/config.yaml` existe y es válido
+- Fichero fuente existe y es legible (o URL accesible)
+- `docs/specs/<slug>.md` NO existe (si existe → error o `--force`)
+- Working tree limpio
+
+#### Flujo interactivo
+
+**Step 1 — Análisis del fuente**
+
+Leer el markdown y extraer/inferir:
+- Título sugerido (primer `#` o nombre del fichero)
+- Slug sugerido (kebab-case del título)
+- Tipo (`task` / `epic`) — heurística: ¿tiene sub-tareas o checklist largo? → `epic`
+- Prioridad (`P0`/`P1`/`P2`) — heurística: palabras como "urgente", "crítico", "bloqueante" → P0
+- Tamaño (`S`/`M`/`L`/`XL`) — heurística: longitud del documento + número de criterios
+- Secciones detectadas que mapean al template (Contexto, Decisiones, Scope, Criterios, Notas técnicas, Referencias)
+- Secciones sin mapeo → quedan al final como `## Notas adicionales`
+
+**Step 2 — Propuesta al usuario**
+
+Mostrar tabla con cada campo, el **valor propuesto** y la **fuente** (heurística o "default"). El usuario puede:
+- `accept` — aceptar todo
+- `edit <campo>` — modificar un campo
+- `abort` — cancelar
+
+```
+Campo        Propuesto                Fuente
+─────────────────────────────────────────────────────
+slug         auth-v2                  derivado de título
+title        Auth Refactor v2         primer # del fuente
+type         epic                     detectó 5 sub-tareas
+priority     P0                       "bloqueante" en texto
+size         L                        420 líneas, 8 criterios
+status       draft                    default
+```
+
+**Step 3 — Mapeo de contenido**
+
+Mostrar qué secciones del fuente van a qué secciones del template:
+
+```
+Fuente                        →  Template
+─────────────────────────────────────────────────
+## Por qué                    →  ## Contexto
+## Qué decidimos              →  ## Decisiones tomadas
+## Qué incluye / no incluye   →  ## Scope
+## Definition of Done         →  ## Criterios de aceptación
+## Stack                      →  ## Notas técnicas
+(sin mapeo: ## Brainstorm)    →  ## Notas adicionales
+```
+
+Permitir `remap <fuente> <destino>` o `drop <sección>`.
+
+**Step 4 — Materialización**
+
+1. Generar frontmatter con los valores confirmados
+2. Componer cuerpo según mapeo
+3. Escribir a `docs/specs/<slug>.md`
+4. Borrar fichero fuente salvo `--keep-original`
+
+#### Output
+
+```
+=== /pm spec adopt — notas-auth.md ===
+
+Spec creada: docs/specs/auth-v2.md
+  codename: sigma
+  title:    Auth Refactor v2
+  type:     epic
+  status:   draft
+  priority: P0
+  size:     L
+
+Mapeo aplicado: 5 secciones, 1 al final como "Notas adicionales"
+Fuente original: borrada (usa --keep-original para conservar)
+
+Siguiente paso:
+  Revisa docs/specs/auth-v2.md y ejecuta:
+  /pm spec to-issue auth-v2
+```
+
+#### Errores
+
+| Error | Causa | Solución |
+|-------|-------|----------|
+| `source not found` | Fichero o URL inaccesible | Verificar ruta |
+| `slug exists` | Ya existe `docs/specs/<slug>.md` | Usar `--slug` distinto o `--force` |
+| `empty source` | Markdown sin contenido útil | Añadir contenido o usar `/pm spec new` |
+
+#### Notas
+
+- En modo no-interactivo (`--yes`) se aceptan todas las heurísticas sin confirmación. Útil para batch, pero revisa el resultado.
+- El skill **nunca inventa** criterios de aceptación: si el fuente no los tiene, la sección queda con un placeholder marcado.
+- URLs solo se aceptan si apuntan a markdown plano (gist, raw GitHub, etc.).
+
+---
+
+### `/pm spec to-issue <slug>`
+
+Convierte una spec draft en issue del GitHub Project.
+
+#### Invocación
+
+```bash
+/pm spec to-issue auth-refactor                # crea issue, actualiza spec
+/pm spec to-issue auth-refactor --dry-run      # solo muestra, no muta
+```
+
+#### Pre-flight
+
+- `.pm/config.yaml` existe y es válido
+- `docs/specs/<slug>.md` existe
+- Spec tiene `status: draft` (no activa ni shipped)
+- MCP de GitHub disponible
+- `gh auth status` ok
+- Working tree limpio
+
+#### Comportamiento
+
+1. Parsear frontmatter de la spec
+2. Validar `status: draft`
+3. Crear issue en GitHub:
+   - Título: campo `title` del frontmatter
+   - Body: contenido de la spec (sin frontmatter)
+   - Labels: derivados de `type`, `priority`, `size` si el repo los tiene
+4. Añadir issue al GitHub Project (via MCP `add_project_item`)
+5. Actualizar frontmatter de la spec:
+   - `related_issues: [N]` → número del issue creado
+   - `status: draft` → `status: active`
+   - `updated: <today>`
+6. Comentar en el issue: `[pm-sync] Spec: docs/specs/<slug>.md`
+
+#### Output
+
+```
+=== /pm spec to-issue — auth-refactor ===
+
+Issue creado: #42
+  Repo:    Autarquico/sigma
+  Project: Autarquico/projects/1
+
+Spec actualizada: docs/specs/auth-refactor.md
+  status:         draft → active
+  related_issues: [42]
+  updated:        2026-05-14
+
+Siguiente paso:
+  Crear PR con "Closes #42" para cerrar el ciclo
+```
+
+#### Errores
+
+| Error | Causa | Solución |
+|-------|-------|----------|
+| `spec not found` | No existe `docs/specs/<slug>.md` | Verificar slug o crear con `/pm spec new` |
+| `spec not draft` | `status` no es `draft` | Solo specs draft se pueden promover |
+| `issue already exists` | `related_issues` no vacío | Spec ya tiene issue vinculado |
+| `MCP unavailable` | Server MCP no responde | Verificar config y conexión |
+
+---
+
 ## Config: `.pm/config.yaml`
 
 Schema completo en [references/config-schema.md](references/config-schema.md).
@@ -370,14 +608,21 @@ updated: 2026-05-14
 
 ## Extension Points
 
-1. `/pm spec new <slug>` — crear spec desde template
-2. `/pm spec to-issue <slug>` — convertir spec en issue del board
-3. Sub-agentes especializados (spec-validator, status-writer)
-4. GitHub Actions para sync automático
+1. Sub-agentes especializados (spec-validator, status-writer)
+2. GitHub Actions para sync automático
+3. `/pm spec list` — listar specs con filtros (status, priority)
+4. `/pm spec archive <slug>` — archivar spec manualmente
 
 ---
 
 ## Changelog
+
+### v1.2.0 (2026-05-14)
+- Added `/pm spec adopt <file.md>` — convertir markdown genérico en spec formal (interactivo)
+
+### v1.1.0 (2026-05-14)
+- Added `/pm spec new <slug>` — crear spec desde template
+- Added `/pm spec to-issue <slug>` — promover spec draft a issue del board
 
 ### v1.0.0 (2026-05-14)
 - Initial release
