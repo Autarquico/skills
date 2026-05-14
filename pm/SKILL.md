@@ -14,7 +14,7 @@ allowed-tools:
   - Agent
   - mcp__claude_ai_Github__*
 metadata:
-  version: 1.2.0
+  version: 1.4.0
   author: autarqui
   domains:
     - project-management
@@ -35,16 +35,20 @@ Sistema PM multi-proyecto para Autarqui. Reconcilia tres planos: specs (`docs/sp
 /pm spec new <slug>         # crea spec desde template
 /pm spec adopt <file.md>    # convierte markdown genérico en spec formal (interactivo)
 /pm spec to-issue <slug>    # convierte spec draft en issue del board
+/pm bots process            # procesa PRs de bots: merge seguros, cierra obsoletos
+/pm bots review <pr>        # analiza major bump y genera plan de migración + tickets
 ```
 
 ## Triggers
 
-- `/pm sync`, `/pm adopt`, `/pm init`, `/pm spec`
+- `/pm sync`, `/pm adopt`, `/pm init`, `/pm spec`, `/pm bots`
 - "sincronizar proyecto", "sync del proyecto"
 - "adoptar repo PM", "inicializar PM"
 - "estado del proyecto", "reconciliar board"
 - "crear spec", "nueva spec", "spec to issue", "convertir spec a issue"
 - "adoptar spec", "formalizar markdown", "convertir notas en spec"
+- "procesar dependabots", "limpiar PRs de bots", "merge automático de bots", "triage de bots"
+- "plan de migración", "analizar major bump", "breaking changes a tickets", "cómo migrar"
 
 ## Quick Reference
 
@@ -56,6 +60,8 @@ Sistema PM multi-proyecto para Autarqui. Reconcilia tres planos: specs (`docs/sp
 | `/pm spec new <slug>` | Crea spec en `docs/specs/<slug>.md` desde template |
 | `/pm spec adopt <file.md>` | Adopta markdown externo como spec formal (interactivo) |
 | `/pm spec to-issue <slug>` | Convierte spec draft → issue en board, actualiza frontmatter |
+| `/pm bots process` | Triage de PRs de bots: merge patch/minor verdes, cierra superseded/stale |
+| `/pm bots review <pr>` | Analiza major bump: breaking changes → call sites → spec + sub-issues |
 
 ---
 
@@ -513,6 +519,334 @@ Siguiente paso:
 
 ---
 
+## `/pm bots process`
+
+Triage de PRs generados por bots (Dependabot, Renovate, GitHub Actions, etc.). No es un "cleanup" ciego: **procesa** cada PR según su estado — mergea lo seguro, cierra lo obsoleto, deja al humano lo dudoso.
+
+### Invocación
+
+```bash
+/pm bots process                          # dry-run: muestra plan, no muta
+/pm bots process --apply                  # ejecuta acciones
+/pm bots process --only merge             # solo mergea, no cierra nada
+/pm bots process --only close             # solo cierra obsoletos
+/pm bots process --include-major          # incluye majors (default: skip)
+/pm bots process --stale-days 30          # ventana de inactividad (default: 30)
+/pm bots process --delete-branches        # borra branch remota tras merge/close
+```
+
+### Pre-flight
+
+- `.pm/config.yaml` existe y es válido
+- `gh auth status` ok con scope `repo`
+- MCP de GitHub disponible
+- Branch protection del repo respetada (no fuerza merges)
+
+### Matriz de decisiones
+
+Para cada PR abierto cuyo autor sea bot o título matchee patrón:
+
+| Condición | Acción | Comentario |
+|-----------|--------|------------|
+| CI verde + patch/minor + sin conflictos | **MERGE** | `[pm-sync] auto-merged: <type> bump` |
+| Superseded (otro PR del mismo paquete más nuevo) | **CLOSE** | `[pm-sync] superseded by #N` |
+| Conflictos + sin actividad >`stale_days` | **CLOSE** | `[pm-sync] stale with conflicts, bot reabrirá si aplica` |
+| Major bump | **SKIP** | (requiere decisión humana) |
+| CI rojo (no por conflicto) | **SKIP** | (algo se rompe, revisar) |
+| Security update | **MERGE** prioritario | `[pm-sync] security update` |
+
+### Detección de bots
+
+Combina dos señales (OR):
+
+1. **Autor** matchea lista en `gh.cleanup.bot_authors` del config
+2. **Título** matchea cualquier patrón en `gh.cleanup.title_patterns`
+
+Default config:
+
+```yaml
+gh:
+  cleanup:
+    bot_authors:
+      - "dependabot[bot]"
+      - "renovate[bot]"
+      - "github-actions[bot]"
+    title_patterns:
+      - "^chore\\(deps\\):"
+      - "^chore: bump "
+      - "^build\\(deps\\):"
+    stale_days: 30
+    auto_merge_levels: [patch, minor]   # qué semver levels se auto-mergean
+    delete_branches: false
+```
+
+### Detección de "superseded"
+
+Dos PRs son del mismo paquete si:
+- Mismo autor bot **y**
+- Título matchea mismo `(package, ecosystem)` (ej: `Bump react from X to Y` con mismo `react`)
+
+El más nuevo gana; los anteriores se cierran como superseded.
+
+### Detección de semver level
+
+Parseando título estándar de Dependabot: `Bump <pkg> from A.B.C to X.Y.Z`:
+- `A → X` distinto → **major**
+- `B → Y` distinto → **minor**
+- `C → Z` distinto → **patch**
+
+Si no parsea, marcar como `unknown` y skip por seguridad.
+
+### Flujo
+
+**Step 1 — Fetch**
+- `gh pr list --state open --json author,title,headRefName,...`
+- Filtrar bots según config
+- Para cada PR: estado de mergeability, CI, fecha de último update
+
+**Step 2 — Clasificar**
+- Aplicar matriz de decisiones
+- Detectar duplicados/superseded
+- Construir plan: lista de `(pr_number, action, reason)`
+
+**Step 3 — Mostrar plan**
+- Tabla con totales por acción
+- Tabla detallada PR a PR
+
+**Step 4 — Ejecutar (solo con `--apply`)**
+- Comentar antes de cada acción
+- Merge: usar método configurado por la branch protection (squash/merge/rebase)
+- Close: cerrar sin merge
+- Delete branch si flag activo
+- Rate-limit consciente: pausa entre acciones si hay >20
+
+### Output (dry-run)
+
+```
+=== /pm bots process — sigma — 2026-05-14 ===
+
+Modo: DRY-RUN (usa --apply para ejecutar)
+
+Resumen
+  · 24 PRs de bots detectados
+  · 12 → MERGE (patch/minor con CI verde)
+  · 5  → CLOSE superseded
+  · 3  → CLOSE stale con conflictos (>30d)
+  · 4  → SKIP (3 major, 1 CI rojo)
+
+Plan detallado
+  #142  MERGE   chore(deps): bump axios 1.7.2 → 1.7.4         patch, CI ✓
+  #141  MERGE   chore(deps): bump react 18.3.1 → 18.3.2       patch, CI ✓
+  #138  CLOSE   chore(deps): bump axios 1.7.2 → 1.7.3         superseded by #142
+  #120  CLOSE   chore(deps): bump lodash 4.17.20 → 4.17.21    stale 47d, conflicts
+  #115  SKIP    chore(deps): bump react 18.x → 19.0.0         major (revisar changelog)
+  #110  SKIP    chore(deps): bump @types/node 20 → 22         CI rojo (no conflicto)
+  ...
+
+Ejecuta con --apply para aplicar.
+```
+
+### Output (apply)
+
+```
+=== /pm bots process — sigma — 2026-05-14 ===
+
+Modo: APPLY
+
+Ejecutadas
+  ✓ 12 merges
+  ✓ 8 closes (5 superseded + 3 stale)
+  · 4 skips (sin tocar)
+
+Errores
+  · #87 merge falló: required check "e2e" pendiente — reintenta tras verde
+
+Branches borradas: 0 (usa --delete-branches)
+
+Siguientes pasos:
+  · Revisa #115 (react major): https://github.com/...
+  · Revisa #110 (CI rojo): https://github.com/...
+```
+
+### Errores
+
+| Error | Causa | Solución |
+|-------|-------|----------|
+| `branch protection` | Reglas del repo bloquean merge | Ajustar reglas o saltar PR |
+| `required check pending` | CI no ha terminado | Reintentar más tarde |
+| `merge conflict` | Conflicto sobrevenido entre fetch y merge | Reintentar (Dependabot reabre o rebasa) |
+| `rate limit` | Demasiadas acciones seguidas | `--apply` aplica pausa automática |
+
+### Notas de seguridad
+
+- **Nunca mergea majors** sin `--include-major`
+- **Nunca mergea con CI rojo** — solo verde
+- **Respeta branch protection** del repo: si requiere review, no fuerza
+- Los closes son **reversibles**: Dependabot reabre el PR en su próxima pasada si la dependencia sigue aplicando
+- Idempotente: re-ejecutar sin cambios produce plan vacío
+
+---
+
+## `/pm bots review <pr>`
+
+Analiza un PR de major bump y genera un **plan de migración accionable**: extrae breaking changes, los mapea a call sites del repo, y los convierte en una spec con sub-issues trackeables en el board.
+
+Es el puente entre "Dependabot abrió un PR de major que no puedo mergear" y "tengo trabajo formal planificado para migrar".
+
+### Invocación
+
+```bash
+/pm bots review 115                              # analiza PR #115, muestra plan
+/pm bots review 115 --to-spec                    # además crea spec epic + sub-specs
+/pm bots review 115 --to-issues                  # crea epic + sub-issues en el board
+/pm bots review 115 --to-issues --apply          # sin confirmación final
+/pm bots review 115 --changelog-url <url>        # override fuente del changelog
+/pm bots review 115 --grep-tool ast-grep         # default: grep; ast-grep si disponible
+```
+
+### Pre-flight
+
+- `.pm/config.yaml` existe y es válido
+- PR existe, es de bot, y es **major** (si no es major → warning, sigue funcionando)
+- `gh auth status` ok, MCP de GitHub disponible
+- Si `--to-spec` o `--to-issues`: working tree limpio
+
+### Flujo en 5 pasos
+
+**Step 1 — Identificar el cambio**
+
+Del PR extraer: paquete, versión `from`, versión `to`, ecosistema (npm/pip/cargo/etc.).
+
+**Step 2 — Fetch del changelog**
+
+Por orden de preferencia:
+1. GitHub Releases del repo del paquete (vía MCP `list_releases` / `get_release_by_tag`)
+2. `CHANGELOG.md` en el repo (vía MCP `get_file_contents`)
+3. URL custom via `--changelog-url`
+
+Extraer rango: solo entradas entre `from` y `to`.
+
+**Step 3 — Parsear breaking changes**
+
+Heurísticas por estructura del changelog:
+- Secciones marcadas: `## Breaking Changes`, `### BREAKING`, `## Migration Guide`
+- Convencional commits: líneas con `BREAKING CHANGE:` o `feat!:` / `fix!:`
+- Prosa libre: keywords (`removed`, `renamed`, `replaced by`, `no longer`, `must now`)
+
+Cada breaking change normalizado a:
+
+```yaml
+- id: bc-1
+  summary: "useHistory removed, use useNavigate"
+  category: api-removal      # api-removal | api-rename | signature-change | behavior-change | config-change
+  symbols_old: [useHistory]
+  symbols_new: [useNavigate]
+  migration_hint: "history.push(x) → navigate(x); history.replace(x) → navigate(x, {replace:true})"
+```
+
+**Step 4 — Localizar call sites**
+
+Para cada `symbol_old`:
+- `grep` (default) o `ast-grep` (si flag y disponible) en paths configurables
+- Filtrar falsos positivos comunes (comments-only, strings)
+- Agrupar por fichero + estimar nº de ocurrencias
+
+Output por breaking change: lista de `(fichero, línea, snippet)`.
+
+**Step 5 — Generar plan**
+
+Plan estructurado:
+
+```
+=== Plan: react-router 6.x → 7.0 (PR #115) ===
+
+Breaking changes: 4    Call sites: 24    Ficheros afectados: 9
+
+[bc-1] useHistory removed → useNavigate                    3 sitios, 3 ficheros
+  · src/pages/Login.tsx:12       history.push("/dashboard")
+  · src/hooks/useAuth.ts:34      history.replace(loginUrl)
+  · src/components/Logout.tsx:8  history.push("/")
+
+[bc-2] <Switch> removed → <Routes>                          1 sitio, 1 fichero
+  · src/App.tsx:24
+
+[bc-3] Route: element prop required (era children)         8 sitios, 1 fichero
+  · src/App.tsx:30-58   (8 rutas)
+
+[bc-4] exact prop removed (default ahora)                  12 sitios, 1 fichero
+  · src/App.tsx:30-58   (cosmético: borrar prop)
+
+Estimación size: M (la mayoría mecánico, bc-1 requiere atención)
+```
+
+### Modo `--to-spec` / `--to-issues`
+
+Convierte el plan en trabajo formal:
+
+**`--to-spec`** crea estructura de specs:
+- 1 spec epic: `docs/specs/migrate-react-router-7.md`
+  - frontmatter: `type: epic, status: draft, related_issues: [115]`
+  - cuerpo: contexto del bump, link al PR, link al changelog, lista de breaking changes con sus call sites
+- N sub-specs (una por breaking change): `docs/specs/migrate-react-router-7-bc-1.md`...
+  - frontmatter: `type: task, status: draft`
+  - cuerpo: descripción del breaking change, migration hint, lista exacta de call sites con snippet
+
+**`--to-issues`** además ejecuta `/pm spec to-issue` sobre cada spec generada, y crea la jerarquía:
+- Issue epic con sub-issues vinculados (via MCP `sub_issue_write`)
+- El PR original del bot queda comentado: `[pm-sync] Migración planificada en epic #N`
+
+Tras la migración manual y merge, `/pm sync` detecta el issue cerrado y cierra el PR del bot como superseded.
+
+### Output (modo plan)
+
+```
+=== /pm bots review — PR #115 — react-router 6.30.0 → 7.0.0 ===
+
+Changelog:        github.com/remix-run/react-router/releases/tag/v7.0.0
+Breaking changes: 4
+Call sites:       24 en 9 ficheros
+Estimación:       size M, ~2-3 días
+
+Plan detallado: [tabla anterior]
+
+Siguiente paso:
+  /pm bots review 115 --to-issues   # materializar como epic + sub-issues
+```
+
+### Output (modo `--to-issues`)
+
+```
+=== /pm bots review — PR #115 — APPLY ===
+
+Specs creadas:
+  ✓ docs/specs/migrate-react-router-7.md          (epic)
+  ✓ docs/specs/migrate-react-router-7-bc-1.md     (useHistory)
+  ✓ docs/specs/migrate-react-router-7-bc-2.md     (Switch → Routes)
+  ✓ docs/specs/migrate-react-router-7-bc-3.md     (Route element)
+  ✓ docs/specs/migrate-react-router-7-bc-4.md     (exact prop)
+
+Issues creados en board:
+  ✓ #203 [epic] Migrate react-router 6 → 7
+    ├─ #204 Replace useHistory with useNavigate (3 sitios)
+    ├─ #205 Replace <Switch> with <Routes>      (1 sitio)
+    ├─ #206 Add element prop to all Routes      (8 sitios)
+    └─ #207 Remove exact prop from Routes       (12 sitios)
+
+PR #115 comentado: "Migración planificada en epic #203"
+
+Siguiente paso:
+  Trabaja los sub-issues. Al cerrar #203, /pm sync cerrará #115.
+```
+
+### Limitaciones honestas
+
+- **Parsing de changelogs es heurístico**. Funciona bien con Keep-a-Changelog y Conventional Commits; con prosa libre el recall baja. Revisa el plan antes de `--to-issues`.
+- **Grep produce falsos positivos** con símbolos comunes (`History`, `Link`). Usa `--grep-tool ast-grep` si lo tienes instalado para precisión.
+- **Behavior changes invisibles** (mismo símbolo, semántica distinta) no se detectan por grep — el changelog las menciona pero no hay call sites a marcar. Quedan listadas en el epic como "revisar manualmente".
+- **No ejecuta la migración**. Genera el plan; el código lo escribes tú (o le pides a Claude que tome un sub-issue).
+
+---
+
 ## Config: `.pm/config.yaml`
 
 Schema completo en [references/config-schema.md](references/config-schema.md).
@@ -616,6 +950,12 @@ updated: 2026-05-14
 ---
 
 ## Changelog
+
+### v1.4.0 (2026-05-14)
+- Added `/pm bots review <pr>` — analiza major bump, genera plan de migración con call sites, y opcionalmente lo materializa como epic + sub-issues en el board
+
+### v1.3.0 (2026-05-14)
+- Added `/pm bots process` — triage de PRs de bots: merge patch/minor verdes, cierra superseded/stale, skip majors
 
 ### v1.2.0 (2026-05-14)
 - Added `/pm spec adopt <file.md>` — convertir markdown genérico en spec formal (interactivo)

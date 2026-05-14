@@ -32,7 +32,17 @@ TMP=$(mktemp -d) && git clone --depth 1 --filter=blob:none --no-checkout https:/
 
 ### [`pm`](./pm)
 
-Sistema PM multi-proyecto. Reconcilia specs (`docs/specs/`), GitHub Projects board y `docs/STATUS.md` vía un `.pm/config.yaml` por repo. Comandos: `/pm sync` (reconciliación día a día), `/pm adopt` (adopta repo existente), `/pm init <codename>` (crea proyecto nuevo: repo + project + scaffolding). Usa GitHub MCP + `gh` CLI. Idioma operativo: español.
+Sistema PM multi-proyecto. Reconcilia specs (`docs/specs/`), GitHub Projects board y `docs/STATUS.md` vía un `.pm/config.yaml` por repo. Usa GitHub MCP + `gh` CLI. Idioma operativo: español.
+
+**Comandos:**
+- `/pm sync` — reconciliación día a día (board ← PRs, specs ← board, STATUS ← board)
+- `/pm adopt` — adopta repo existente añadiendo scaffolding PM sin tocar código
+- `/pm init <codename>` — crea proyecto nuevo: repo + GitHub Project + scaffolding
+- `/pm spec new <slug>` — crea spec en `docs/specs/<slug>.md` desde template
+- `/pm spec adopt <file.md>` — convierte markdown genérico en spec formal (interactivo)
+- `/pm spec to-issue <slug>` — promueve spec draft a issue del board
+- `/pm bots process` — triage de PRs de bots: merge patch/minor verdes, cierra superseded/stale
+- `/pm bots review <pr>` — analiza major bump: breaking changes → call sites → spec + sub-issues
 
 ```bash
 TMP=$(mktemp -d) && git clone --depth 1 --filter=blob:none --no-checkout https://github.com/Autarquico/skills.git "$TMP" && git -C "$TMP" sparse-checkout set --cone pm && git -C "$TMP" checkout main && mkdir -p ~/.claude/skills && cp -r "$TMP/pm" ~/.claude/skills/ && rm -rf "$TMP" && echo "✓ installed at ~/.claude/skills/pm"
