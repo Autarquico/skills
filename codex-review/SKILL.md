@@ -63,23 +63,74 @@ base=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remo
 
 ## Large diff handling
 
-If the diff is > 2000 lines (check with `git diff --stat <scope> | tail -1`), split by area and review each separately. Detect areas by common top-level paths:
-
-- `src/api/`, `api/`, `backend/`, `server/`
-- `src/web/`, `web/`, `frontend/`, `client/`, `ui/`
-- `tests/`, `test/`, `__tests__/`
-- `migrations/`, `db/`
-- everything else → `misc`
-
-For per-area review, drop the built-in subcommand and pipe a path-filtered diff:
+Measure first, split only if needed:
 
 ```bash
-git diff "$base...HEAD" -- <area-path> | codex exec - <<'PROMPT'
-[see adversarial prompt below]
-PROMPT
+lines=$(git diff --numstat "$scope" | awk '{a+=$1; d+=$2} END{print a+d+0}')
 ```
 
-Combine findings across areas in the final report.
+- `lines` ≤ 2000 → single review call. Skip the split entirely.
+- `lines` > 2000 → split by **detected area prefix**, derived from the actual changed paths — not a hardcoded list.
+
+### Area-prefix detection algorithm
+
+The goal: group changed files by whatever the repo's natural top-level structure is. Don't assume `src/api` or `backend/`.
+
+1. `git diff --name-only "$scope"` → list of changed paths.
+2. Detect a monorepo convention by checking if **any** changed path matches one of these patterns:
+
+   | Pattern | Group key | Convention it matches |
+   |---|---|---|
+   | `apps/<x>/...` | `apps/<x>` | Nx, Turborepo, pnpm-workspaces |
+   | `packages/<x>/...` | `packages/<x>` | same |
+   | `services/<x>/...` | `services/<x>` | microservices monorepo |
+   | `crates/<x>/...` | `crates/<x>` | Rust workspace |
+   | `modules/<x>/...` | `modules/<x>` | Go / generic |
+   | `cmd/<x>/...` | `cmd/<x>` | Go |
+   | anything else | first path segment (`backend`, `frontend`, `tests`, `migrations`, …) | flat repo |
+
+3. For each changed path, assign a group key by the **first matching rule** in the table. Falls through to first path segment for files outside any monorepo pattern (e.g., root-level `README.md`, `Makefile` → group `<root>`).
+4. Per group, compute line count via `git diff --numstat "$scope" -- <files>`.
+5. **Coalesce small groups:** any group with < 300 lines collapses into a single `misc` bucket. Prevents the split from producing 17 tiny reviews.
+6. If after coalescing only one group remains, abandon the split — do a single review call instead.
+
+### Bash recipe (run this, don't hand-roll groupings)
+
+```bash
+git diff --name-only "$scope" | awk '
+{
+  if      (match($0, /^(apps|packages|services|crates|modules|cmd)\/[^\/]+\//, m)) key = substr($0, RSTART, RLENGTH-1)
+  else if (index($0, "/"))                                                          key = substr($0, 1, index($0,"/")-1)
+  else                                                                              key = "<root>"
+  print key "\t" $0
+}' | sort > /tmp/codex-review-groups.tsv
+
+# Per-group line counts
+awk -F'\t' '{print $1}' /tmp/codex-review-groups.tsv | sort -u | while read group; do
+  files=$(awk -F'\t' -v g="$group" '$1==g {print $2}' /tmp/codex-review-groups.tsv)
+  lines=$(git diff --numstat "$scope" -- $files | awk '{a+=$1;d+=$2} END{print a+d+0}')
+  printf "%s\t%d\n" "$group" "$lines"
+done > /tmp/codex-review-sizes.tsv
+
+# Coalesce groups < 300 lines into "misc"
+awk -F'\t' '$2 >= 300 {print $1; next} {misc=1} END {if (misc) print "misc"}' \
+  /tmp/codex-review-sizes.tsv
+```
+
+### Per-group review
+
+For each surviving group, pipe its filtered diff to `codex exec -` (raw mode, since the built-in `codex exec review` reviews the whole scope):
+
+```bash
+git diff "$scope" -- $group_files | codex exec - "$ADVERSARIAL_PROMPT"
+```
+
+Combine findings across groups in the final report, grouped by severity (not by area). Mention the area in each finding's file path — that's already enough context.
+
+### Edge cases
+
+- **All changes in one giant package** (`packages/foo/` has 5000 lines) → don't split further within that package. Hand it to Codex as one call; if it complains about context size, then sub-split by `packages/foo/<subdir>` using the same first-segment rule on the relative path.
+- **Mostly generated files** (`*.lock`, `dist/`, `__generated__/`) → exclude before measuring with `git diff --stat "$scope" -- ':!*.lock' ':!dist/**'` etc., but ask the user once before excluding anything domain-specific.
 
 ## Invoking codex
 
