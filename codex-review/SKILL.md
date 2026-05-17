@@ -11,6 +11,7 @@ description: >
   security issues, race conditions, missing edge cases, or weak error handling
   in code they've already written.
 license: MIT
+argument-hint: "[pr | uncommitted | last <N> | <free-form intent>]"
 allowed-tools:
   - Bash
 metadata:
@@ -34,22 +35,22 @@ If the user only wants stylistic suggestions or refactors, this is the wrong ski
 
 ## Preflight
 
-Run all four checks before invoking `codex`:
+Run before invoking `codex`:
 
-1. `command -v codex` — if missing, tell the user: *"codex CLI not installed. Install it (https://github.com/openai/codex) and re-run."* Stop. No retry.
+1. `command -v codex` — if missing, tell the user: *"codex CLI not installed. Install with `brew install codex` (or see https://github.com/openai/codex)."* Stop. No retry.
 2. `codex --version` — if it errors with auth/login text, tell the user to run `codex login` and stop. No retry.
-3. Determine scope (see "Scope selection" below).
-4. Compute the diff. If empty, say *"No changes to review."* and stop. Do not call `codex`.
+3. Confirm `git rev-parse --is-inside-work-tree` is true. If not, stop with "Not in a git repo."
+4. Determine scope (see "Scope selection" below) and verify the diff is non-empty before calling `codex`. Empty diff → *"No changes to review."* Stop.
 
 ## Scope selection
 
 Pick exactly one. Ask the user only if ambiguous.
 
-| User intent | Scope | Command |
-|---|---|---|
-| "review this PR" / "review my branch" | PR vs base | `git diff <base>...HEAD` |
-| "review the last N commits" | Last N commits | `git diff HEAD~<N>` |
-| "review my working changes" / no commit yet | Working tree | `git diff` + `git diff --staged` |
+| User intent | Scope | Diff probe | Codex invocation |
+|---|---|---|---|
+| "review this PR" / "review my branch" | PR vs base | `git diff --stat <base>...HEAD` | `codex exec review --base <base>` |
+| "review the last N commits" | Last N commits | `git diff --stat HEAD~<N>` | `codex exec review --commit HEAD~<N>..HEAD` (or per-commit loop) |
+| "review my working changes" / no commit yet | Working tree | `git diff --stat` + `git diff --stat --staged` | `codex exec review --uncommitted` |
 
 ### Auto-detect base branch
 
@@ -62,7 +63,7 @@ base=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remo
 
 ## Large diff handling
 
-If the diff is > 2000 lines, split by area and review each area separately. Detect areas by common top-level paths:
+If the diff is > 2000 lines (check with `git diff --stat <scope> | tail -1`), split by area and review each separately. Detect areas by common top-level paths:
 
 - `src/api/`, `api/`, `backend/`, `server/`
 - `src/web/`, `web/`, `frontend/`, `client/`, `ui/`
@@ -70,17 +71,36 @@ If the diff is > 2000 lines, split by area and review each area separately. Dete
 - `migrations/`, `db/`
 - everything else → `misc`
 
-Use `git diff <base>...HEAD -- <path>` per area. Issue one `codex` call per area, then combine findings.
-
-## The Codex prompt
-
-Pipe the diff into `codex` with a prompt focused on *bugs that ship*, not style:
+For per-area review, drop the built-in subcommand and pipe a path-filtered diff:
 
 ```bash
-git diff "$base...HEAD" | codex exec --model gpt-5 - <<'PROMPT'
-You are an adversarial code reviewer. The diff below is about to be merged.
-Find what will break in production. Be concise and cite specific files and
-line numbers. Focus exclusively on:
+git diff "$base...HEAD" -- <area-path> | codex exec - <<'PROMPT'
+[see adversarial prompt below]
+PROMPT
+```
+
+Combine findings across areas in the final report.
+
+## Invoking codex
+
+**Preferred: the built-in review subcommand** (codex ≥ 0.130 ships `codex exec review`):
+
+```bash
+# PR vs base
+codex exec review --base "$base"
+
+# Working tree
+codex exec review --uncommitted
+
+# Single commit
+codex exec review --commit <sha>
+```
+
+Pass your adversarial focus as a custom prompt argument so the built-in review uses your criteria:
+
+```bash
+codex exec review --base "$base" "$(cat <<'PROMPT'
+Adversarial reviewer. Focus exclusively on bugs that ship, not style:
 
   1. Logic bugs (wrong condition, off-by-one, swapped args, missing return)
   2. Race conditions and concurrency hazards
@@ -100,9 +120,18 @@ For each finding, output exactly:
 
 If you find nothing in a category, do not mention it.
 PROMPT
+)"
 ```
 
-Adjust `--model` flag per the installed `codex` version if needed.
+**Fallback: raw `codex exec`** when you need to feed a filtered or pre-computed diff (the per-area split above, or a diff fragment the user supplies):
+
+```bash
+git diff "$base...HEAD" -- <path> | codex exec - <<'PROMPT'
+[same adversarial prompt as above; treat stdin as the diff to review]
+PROMPT
+```
+
+Add `-m <model>` only if the user explicitly requests a non-default model. Otherwise let Codex pick.
 
 ### If Codex returns vague output
 
