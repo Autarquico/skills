@@ -13,6 +13,7 @@ description: >
   `scripts/discover-stack.sh`). Reports root cause + evidence + alternatives
   before proposing a patch. Never applies edits without explicit user OK.
 license: MIT
+argument-hint: "[discover-stack] [bug description | URL | stack trace]"
 allowed-tools:
   - Bash
   - Read
@@ -29,6 +30,23 @@ metadata:
 # debugger
 
 Investigates and fixes bugs across UI and backend. Reproduces, diagnoses, proposes a patch, applies it on your OK, and re-verifies. Iterates up to 5 times.
+
+## Commands
+
+Dispatch on the first argument:
+
+| Command | Action |
+|---|---|
+| `/debugger discover-stack` | Run `~/.claude/skills/debugger/scripts/discover-stack.sh` from the current repo root via Bash, then read `.claude/debugger.md` (or `.new`) and propose curated values for the `[FILL IN]` sections. Stop after proposal — user commits the file. |
+| `/debugger <bug description>` | Investigation mode (Step 1 onward). |
+| `/debugger` (no arg) | Investigation mode. Ask the user what's broken if no context. |
+
+For `discover-stack`:
+
+1. Confirm the user is at a repo root (`.git/` exists).
+2. Run the script with whatever env is already set (`DOZZLE_URL`, `DOZZLE_TOKEN`). If `DOZZLE_TOKEN` is unset, the script falls back to local docker — that's fine.
+3. After the script exits, read the generated file (`.claude/debugger.md` or `.claude/debugger.md.new`).
+4. Propose values for each `[FILL IN]` block using the discovery samples, in a single message. Don't apply edits — show the proposal and wait.
 
 ## Step 1: load repo config (ALWAYS FIRST)
 
@@ -178,10 +196,10 @@ Use these names exactly as the repo declares them — do not invent your own:
 |---|---|
 | `scripts/discover-stack.sh` | One-time per repo: probes Dozzle + docker, generates `.claude/debugger.md` skeleton with real container names and recent log samples. Never overwrites existing config — writes `.new` for diff. |
 
-Run with:
+Invoke via:
 
-```bash
-DOZZLE_URL=http://localhost:8080 DOZZLE_TOKEN=xxx ~/.claude/skills/debugger/scripts/discover-stack.sh
+```
+/debugger discover-stack
 ```
 
-From the repo root. See the script's `--help` for options.
+(Skill runs the script from the current repo root and proposes curated config.)
