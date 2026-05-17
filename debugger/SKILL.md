@@ -44,9 +44,11 @@ Dispatch on the first argument:
 For `discover-stack`:
 
 1. Confirm the user is at a repo root (`.git/` exists).
-2. Run the script with whatever env is already set (`DOZZLE_URL`, `DOZZLE_TOKEN`). If `DOZZLE_TOKEN` is unset, the script falls back to local docker — that's fine.
-3. After the script exits, read the generated file (`.claude/debugger.md` or `.claude/debugger.md.new`).
-4. Propose values for each `[FILL IN]` block using the discovery samples, in a single message. Don't apply edits — show the proposal and wait.
+2. If `.claude/debugger.md` already exists, parse the Dozzle URL from the "Backend log source" section and pass it as `DOZZLE_URL` when invoking the script. Same for `DOZZLE_TOKEN` if declared.
+3. If no config exists yet, ask the user once: "Dozzle URL? (blank to use local docker)" and pass the answer through.
+4. Run the script with the resolved env: `DOZZLE_URL=<url> [DOZZLE_TOKEN=<token>] ~/.claude/skills/debugger/scripts/discover-stack.sh`.
+5. After the script exits, read the generated file (`.claude/debugger.md` or `.claude/debugger.md.new`).
+6. Propose values for each `[FILL IN]` block using the discovery samples, in a single message. Don't apply edits — show the proposal and wait.
 
 ## Step 1: load repo config (ALWAYS FIRST)
 
@@ -92,9 +94,9 @@ If the user gave a named repro recipe from the repo config ("run the checkout re
 
 ## Step 3b: backend investigation (logs)
 
-**Choose source per repo config:**
+**Choose source per repo config.** Read the Dozzle URL (and token, if any) directly from `.claude/debugger.md` — do not require an env var from the user. Use the value inline in your curl command.
 
-- **Dozzle:** `curl -H "Authorization: Bearer $DOZZLE_TOKEN" "$DOZZLE_URL/api/logs/<container>?since=10m"` — adjust path per the version of Dozzle in use; if 404, hit `/api/hosts/<host>/containers/<id>/logs?since=10m` instead.
+- **Dozzle (v10+, SSE):** `curl -s --max-time 5 "<DOZZLE_URL>/api/hosts/<host-id>/containers/<id>/logs?lastEventId=0"` (omit Authorization header if no token in config; add `-H "Authorization: Bearer <token>"` only if config declares one). If the v10 path 404s, fall back to legacy `<DOZZLE_URL>/api/logs/<container>?since=10m`.
 - **Docker fallback:** `docker logs --since 10m <container>` or `docker compose -p <project> logs --since 10m <service>`.
 
 **Methodology:**
@@ -202,4 +204,4 @@ Invoke via:
 /debugger discover-stack
 ```
 
-(Skill runs the script from the current repo root and proposes curated config.)
+The skill reads `DOZZLE_URL` / `DOZZLE_TOKEN` from the existing `.claude/debugger.md` if present, or prompts once on first run. No manual env-var setup required.
