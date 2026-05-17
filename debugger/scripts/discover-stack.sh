@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-DOZZLE_URL="${DOZZLE_URL:-http://localhost:8080}"
+DOZZLE_URL="${DOZZLE_URL:-}"
 DOZZLE_TOKEN="${DOZZLE_TOKEN:-}"
 OUT_DIR=".claude"
 OUT_FILE="$OUT_DIR/debugger.md"
@@ -49,52 +49,70 @@ fi
 # --- Source selection --------------------------------------------------------
 
 SOURCE=""
-if [ -n "$DOZZLE_TOKEN" ]; then
+DOZZLE_API=""
+if [ -n "$DOZZLE_URL" ]; then
   SOURCE="dozzle"
   info "Source: Dozzle at $DOZZLE_URL"
 elif command -v docker >/dev/null 2>&1; then
   SOURCE="docker"
-  info "DOZZLE_TOKEN unset — falling back to local docker."
+  info "DOZZLE_URL unset — using local docker."
 else
-  err "No DOZZLE_TOKEN and no docker CLI available. Set DOZZLE_TOKEN or install docker."
+  err "No DOZZLE_URL and no docker CLI available. Set DOZZLE_URL or install docker."
   exit 1
 fi
 
 # --- Probe -------------------------------------------------------------------
 
 CONTAINERS_JSON=""
+DOZZLE_HOST_ID=""
 case "$SOURCE" in
   dozzle)
-    # Dozzle exposes /api/containers (v6+) or /api/hosts/<host>/containers.
-    # Try the simple endpoint first; if it 404s, try the host-scoped one.
-    HTTP_CODE=$(curl -s -o /tmp/dz-containers.json -w '%{http_code}' \
-      -H "Authorization: Bearer $DOZZLE_TOKEN" \
-      "$DOZZLE_URL/api/containers" || echo "000")
-    if [ "$HTTP_CODE" = "000" ]; then
-      err "Dozzle unreachable at $DOZZLE_URL (connection refused)."
+    # Reachability probe.
+    if ! curl -s --max-time 5 -o /dev/null -w '%{http_code}' "$DOZZLE_URL/" | grep -q '^[23]'; then
+      err "Dozzle unreachable at $DOZZLE_URL."
       exit 1
     fi
-    if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
-      err "Dozzle auth failed (HTTP $HTTP_CODE). Check DOZZLE_TOKEN."
-      exit 1
+
+    AUTH=()
+    [ -n "$DOZZLE_TOKEN" ] && AUTH=(-H "Authorization: Bearer $DOZZLE_TOKEN")
+
+    # Dozzle v10+ uses SSE at /api/events/stream emitting a `containers-changed`
+    # event with the full container list. Older versions had /api/containers.
+    HTTP_CODE=$(curl -s ${AUTH[@]+"${AUTH[@]}"} -o /tmp/dz-containers.json -w '%{http_code}' \
+      "$DOZZLE_URL/api/containers" 2>/dev/null || echo "000")
+
+    if [ "$HTTP_CODE" = "200" ]; then
+      DOZZLE_API="rest"
+      CONTAINERS_JSON=$(cat /tmp/dz-containers.json)
+    else
+      # SSE path — read events for ~2s, extract the first containers-changed payload.
+      info "REST API not present (HTTP $HTTP_CODE); falling back to SSE (Dozzle v10+)."
+      DOZZLE_API="sse"
+      curl -s --max-time 3 ${AUTH[@]+"${AUTH[@]}"} "$DOZZLE_URL/api/events/stream" 2>/dev/null \
+        > /tmp/dz-stream.txt || true
+      if [ ! -s /tmp/dz-stream.txt ]; then
+        err "Dozzle SSE stream returned nothing. Check auth or URL."
+        exit 1
+      fi
+      CONTAINERS_JSON=$(awk '
+        /^event: containers-changed/ { want=1; next }
+        want && /^data: / { sub(/^data: /,""); print; exit }
+      ' /tmp/dz-stream.txt)
+      if [ -z "$CONTAINERS_JSON" ]; then
+        err "Could not parse containers from Dozzle SSE stream."
+        exit 1
+      fi
+      if [ "$HAS_JQ" = "1" ]; then
+        DOZZLE_HOST_ID=$(echo "$CONTAINERS_JSON" | jq -r '.[0].host // empty' 2>/dev/null)
+      fi
     fi
-    if [ "$HTTP_CODE" = "404" ]; then
-      warn "GET /api/containers returned 404 — your Dozzle may use a different API path."
-      warn "Try DOZZLE_URL with trailing path, or inspect Dozzle docs for your version."
-      exit 1
-    fi
-    if [ "$HTTP_CODE" != "200" ]; then
-      err "Dozzle returned HTTP $HTTP_CODE."
-      exit 1
-    fi
-    CONTAINERS_JSON=$(cat /tmp/dz-containers.json)
     ;;
   docker)
     if ! docker ps >/dev/null 2>&1; then
       err "docker ps failed. Is the docker daemon running?"
       exit 1
     fi
-    CONTAINERS_JSON=$(docker ps --format '{"name":"{{.Names}}","image":"{{.Image}}","status":"{{.Status}}","host":"local"}' \
+    CONTAINERS_JSON=$(docker ps --format '{"name":"{{.Names}}","image":"{{.Image}}","status":"{{.Status}} ({{.State}})","host":"local"}' \
                        | jq -s '.' 2>/dev/null || docker ps --format '{{.Names}}|{{.Image}}|{{.Status}}')
     ;;
 esac
@@ -102,10 +120,18 @@ esac
 # --- Fetch log samples -------------------------------------------------------
 
 fetch_logs_dozzle() {
-  local container="$1"
-  # since=10m, limit lines client-side
-  curl -s -H "Authorization: Bearer $DOZZLE_TOKEN" \
-    "$DOZZLE_URL/api/logs/$container?since=5m" 2>/dev/null | tail -n 20
+  local container_id="$1"
+  local auth=()
+  [ -n "$DOZZLE_TOKEN" ] && auth=(-H "Authorization: Bearer $DOZZLE_TOKEN")
+  if [ "$DOZZLE_API" = "sse" ] && [ -n "$DOZZLE_HOST_ID" ]; then
+    # v10: /api/hosts/<host>/containers/<id>/logs?... — also an SSE-ish stream.
+    curl -s --max-time 3 ${auth[@]+"${auth[@]}"} \
+      "$DOZZLE_URL/api/hosts/$DOZZLE_HOST_ID/containers/$container_id/logs?lastEventId=0" 2>/dev/null \
+      | sed -n 's/^data: //p' | tail -n 20
+  else
+    curl -s --max-time 3 ${auth[@]+"${auth[@]}"} \
+      "$DOZZLE_URL/api/logs/$container_id?since=5m" 2>/dev/null | tail -n 20
+  fi
 }
 
 fetch_logs_docker() {
@@ -205,24 +231,29 @@ EOF
   echo "### Recent log samples (last 5 min, 20 lines each)"
   echo ""
 
-  # Extract container names for log sampling
-  NAMES=""
+  # Extract container identifiers. Dozzle v10 needs the container id for log
+  # fetch; docker can use the name.
+  ENTRIES=""
   if [ "$HAS_JQ" = "1" ] && echo "$CONTAINERS_JSON" | jq -e . >/dev/null 2>&1; then
-    NAMES=$(echo "$CONTAINERS_JSON" | jq -r '(if type == "array" then . else [.] end)[] | (.name // .Name // empty)')
+    ENTRIES=$(echo "$CONTAINERS_JSON" | jq -r '
+      (if type == "array" then . else [.] end)[]
+      | "\(.name // .Name // "?")\t\(.id // .Id // .name // .Name // "?")"
+    ')
   fi
 
-  if [ -z "$NAMES" ] && [ "$SOURCE" = "docker" ]; then
-    NAMES=$(docker ps --format '{{.Names}}')
+  if [ -z "$ENTRIES" ] && [ "$SOURCE" = "docker" ]; then
+    ENTRIES=$(docker ps --format '{{.Names}}	{{.Names}}')
   fi
 
-  for c in $NAMES; do
-    echo "#### $c"
+  while IFS=$'\t' read -r name id; do
+    [ -z "$name" ] && continue
+    echo "#### $name"
     echo ""
     echo '```'
     if [ "$SOURCE" = "dozzle" ]; then
-      out=$(fetch_logs_dozzle "$c")
+      out=$(fetch_logs_dozzle "$id")
     else
-      out=$(fetch_logs_docker "$c")
+      out=$(fetch_logs_docker "$name")
     fi
     if [ -z "$out" ]; then
       echo "(no recent logs)"
@@ -231,7 +262,7 @@ EOF
     fi
     echo '```'
     echo ""
-  done
+  done <<< "$ENTRIES"
 } > "$TARGET_FILE"
 
 # --- Done --------------------------------------------------------------------
