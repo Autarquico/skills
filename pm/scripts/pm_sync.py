@@ -302,11 +302,77 @@ def sync_specs(pm_root: Path, cfg: dict, issues: dict[int, dict],
     return changed
 
 
+def step5_apply_auto_merge(repo: str, dry: bool) -> int:
+    """Step 5: para cada PR open con label pm/policy-managed, activar
+    auto-merge si la eligibility (calculada en la GitHub Action y
+    materializada en pm/automerge-eligible) lo permite.
+
+    Idempotente: si el PR ya tiene auto-merge enabled, skip.
+    """
+    try:
+        from pm_lib.policy import effective_policy, evaluate_eligibility
+        from pm_lib.policy_defaults import LABELS
+    except ImportError:
+        warn("pm_lib.policy no disponible; skip Step 5")
+        return 0
+
+    try:
+        cfg = load_config(Path.cwd() / ".pm" / "config.yaml") if False else None
+    except Exception:
+        cfg = None
+    # Re-find cfg via find_pm_root
+    pm_root = find_pm_root()
+    cfg = load_config(pm_root / ".pm" / "config.yaml")
+    policy = effective_policy(cfg)
+
+    if policy["merge"]["auto_merge"] == "manual":
+        log("  policy.merge.auto_merge=manual; Step 5 skip")
+        return 0
+
+    data = gh_json(
+        "pr", "list", "-R", repo, "--state", "open", "--limit", "100",
+        "--json", "number,title,labels,mergeable,reviews,autoMergeRequest",
+    )
+    activated = 0
+    for pr in data:
+        labels = [l["name"] for l in (pr.get("labels") or [])]
+        if LABELS["managed"] not in labels:
+            continue
+        if pr.get("autoMergeRequest"):
+            continue   # ya activo
+        mergeable_str = pr.get("mergeable") or "UNKNOWN"
+        has_conflicts = mergeable_str == "CONFLICTING"
+        approvals = sum(1 for r in (pr.get("reviews") or []) if r.get("state") == "APPROVED")
+        e = evaluate_eligibility(labels, policy,
+                                 pr_has_conflicts=has_conflicts,
+                                 approvals_count=approvals)
+        if not e.eligible:
+            log(f"  PR #{pr['number']}: no elegible ({'; '.join(e.blockers)})")
+            continue
+        strategy = policy["merge"]["strategy"]
+        delete = policy["branch"].get("delete_after_merge", True)
+        if dry:
+            log(f"  [dry] enable auto-merge en PR #{pr['number']} (--{strategy})")
+        else:
+            args = ["pr", "merge", str(pr["number"]), "-R", repo, "--auto", f"--{strategy}"]
+            if delete:
+                args.append("--delete-branch")
+            r = gh(*args, check=False)
+            if r.returncode != 0:
+                warn(f"  PR #{pr['number']}: auto-merge falló ({r.stderr.strip()[:80]})")
+                continue
+            gh("pr", "comment", str(pr["number"]), "-R", repo,
+               "--body", f"[pm-sync] auto-merge enabled ({strategy})", check=False)
+            ok(f"  PR #{pr['number']}: auto-merge enabled")
+            activated += 1
+    return activated
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--since", help="YYYY-MM-DD (default: hace 7 días)")
-    ap.add_argument("--only", choices=["board", "specs", "status"])
+    ap.add_argument("--only", choices=["board", "specs", "status", "automerge"])
     args = ap.parse_args()
 
     gh_auth_check()
@@ -343,10 +409,17 @@ def main() -> None:
         log("Step 4: regen STATUS.md")
         status_changes = regen_status(pm_root, cfg, issues, prs, since, args.dry_run)
 
+    automerge_activated = 0
+    if args.only in (None, "automerge"):
+        log("Step 5: apply auto-merge")
+        automerge_activated = step5_apply_auto_merge(repo, args.dry_run)
+        log(f"  {automerge_activated} PRs con auto-merge activado")
+
     log("Resumen:")
-    log(f"  board   {board_moves}")
-    log(f"  specs   {spec_changes}")
-    log(f"  status  {status_changes}")
+    log(f"  board     {board_moves}")
+    log(f"  specs     {spec_changes}")
+    log(f"  status    {status_changes}")
+    log(f"  automerge {automerge_activated}")
     if args.dry_run:
         ok("DRY-RUN: nada mutado.")
     else:

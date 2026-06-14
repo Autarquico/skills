@@ -14,7 +14,7 @@ allowed-tools:
   - Agent
   - mcp__claude_ai_Github__*
 metadata:
-  version: 2.2.0
+  version: 2.3.0
   author: autarqui
   domains:
     - project-management
@@ -51,7 +51,17 @@ Ningún comando es prompt-driven: la lógica vive en código, el modelo solo orq
 /pm cycle list              # tabla de specs activos con su fase
 /pm cycle seed              # imprime refine-seed.md (plantilla para codex)
 /pm cycle review <slug>     # genera payload de review para codex (no postea)
+/pm cycle review-resolved <slug> <mergeable|needs-changes>   # marca external + sync
 /pm spec abandon <slug> --reason "…"   # marca abandoned + archive + cierra issue
+
+/pm policy show [--effective|--raw|--diff]   # imprime policy (read-only)
+/pm policy init [--preset standard|conservative|solo|--yes]   # wizard o preset
+/pm policy validate [--strict]               # compara policy vs realidad del repo
+/pm policy install-check                     # instala .github/workflows/pm-policy.yml
+/pm policy apply-pr <slug> [--internal X]    # cierre Fase 3: push + PR + labels
+/pm policy state <pr>                        # decodifica labels de un PR
+/pm policy adopt-prs [--default-internal X]  # bulk-adopt de PRs preexistentes
+/pm policy bootstrap [--preset X|--yes]      # adopción de proyecto entero
 ```
 
 ## Triggers
@@ -192,6 +202,108 @@ Cierra una spec sin shippearla:
 - cierra el issue como `not-planned` con label `abandoned` y comentario `[pm-sync]`
 
 Idempotente: si el archive target ya existe, falla en vez de sobrescribir.
+
+---
+
+## Repo policy (v2.3+)
+
+Cierra el ciclo automatizando el handoff de Fase 3 (Develop) a Fase 6
+(Deploy): push, abrir PR, esperar reviews, activar auto-merge condicional,
+y dejar que el CI/CD del repo dispare deploy según convención.
+
+### Principios
+
+- **Labels = estado canónico.** Los markers de review viven como labels
+  (`pm/internal-clean`, `pm/external-mergeable`, etc.), no como
+  comentarios. Comentarios `[pm-sync]` son audit log.
+- **Required status check `pm-policy/ready`.** Una GitHub Action lee
+  labels y publica este check. Branch protection puede exigirlo →
+  evita bypass desde la UI con `gh pr merge` manual.
+- **Defaults hardcoded en Python** (`pm_lib/policy_defaults.py`).
+  Override global opcional en `~/.config/claudio/repo-policy.default.yaml`.
+  Per-repo en `.pm/config.yaml` bajo bloque `policy:`.
+- **Validate obligatorio.** Corre dentro de `apply-pr` y antes de
+  activar auto-merge en `sync`. Si la realidad del repo discrepa, no
+  se activa.
+- **Idempotente.** Todos los comandos pueden rerun sin efecto colateral.
+
+### Schema mínimo en `.pm/config.yaml`
+
+Todo es opcional; hereda de defaults. Ejemplo realista:
+
+```yaml
+policy:
+  branch: { default: main, naming: "<type>/<slug>", delete_after_merge: true }
+  merge:  { strategy: squash, auto_merge: conditional }       # o manual
+  review: { require_internal: true, require_external: true,
+            require_human_approval: false,
+            light_path_ok_for_auto_merge: false }
+  merge_handoff: { method: github_action }                    # documental
+```
+
+Presets vía `/pm policy init --preset`:
+- `conservative`: auto_merge=manual, require_human_approval=true
+- `standard` (default): auto_merge=conditional, sin gate humano
+- `solo`: como standard pero light_path puede auto-mergear
+
+### Labels canónicos
+
+| Label | Significado |
+|-------|-------------|
+| `pm/policy-managed` | PR bajo el sistema. Sin este label, sync lo ignora. |
+| `pm/internal-clean` | Bucle interno cerró sin blockers |
+| `pm/internal-escalated` | Bucle interno escaló (no mergear) |
+| `pm/internal-skipped` | Light path; sin reviewer interno |
+| `pm/external-mergeable` | Review externa con codex marcó mergeable |
+| `pm/external-needs-changes` | Codex pidió cambios |
+| `pm/automerge-eligible` | Action lo pone cuando todo está OK |
+| `pm/blocked-inconsistent` | Labels contradictorios; atención humana |
+| `pm/blocked-conflicts` | El PR tiene conflictos de merge |
+
+### Adopción
+
+```bash
+# Proyecto entero (greenfield o sobre repo existente):
+/pm policy bootstrap                  # wizard
+/pm policy bootstrap --preset standard
+git add .pm/config.yaml .github/workflows/pm-policy.yml && git commit && git push
+# Manual una vez: añadir pm-policy/ready como required check
+gh api -X PATCH repos/<owner>/<repo>/branches/main/protection/required_status_checks \
+   -f strict=true -f 'contexts[]=pm-policy/ready'
+
+# PRs preexistentes:
+/pm policy adopt-prs --default-internal skipped   # conservador
+```
+
+### Happy path tras cierre del bucle
+
+```bash
+# Architect (sesión Claude) cierra bucle interno con internal=clean
+/pm policy apply-pr auth-v2            # push + PR + labels (incluye internal-clean)
+
+# Usuario:
+/pm cycle review auth-v2 --out /tmp/r.md   # payload a codex
+# … codex devuelve verdict mergeable …
+/pm cycle review-resolved auth-v2 mergeable   # label external + sync interno
+# → /pm sync Step 5 activa gh pr merge --auto --squash
+# → CI verde → GitHub mergea → deploy del repo se dispara solo
+# → siguiente /pm sync: spec → shipped → archive con fecha
+```
+
+### Debug
+
+```bash
+/pm policy show --effective    # qué policy aplica
+/pm policy show --diff         # qué declaro distinto del default
+/pm policy validate            # ¿discrepa con branch protection?
+/pm policy state 143           # ¿qué le falta al PR #143 para auto-merge?
+```
+
+### Modos `auto_merge`
+
+- `conditional`: sync activa auto-merge solo si Action publica `pm/automerge-eligible`.
+- `manual`: sync nunca toca auto-merge. Mergeas a mano.
+- (sin `aggressive` en v1; descartado tras review por agujero de seguridad)
 
 ---
 
@@ -1094,6 +1206,17 @@ updated: 2026-05-14
 ---
 
 ## Changelog
+
+### v2.3.0 (2026-06-14)
+- **Repo policy + auto-merge condicional**: bloque `policy:` en `.pm/config.yaml` con defaults hardcoded en `pm_lib/policy_defaults.py`. Override global opcional en `~/.config/claudio/repo-policy.default.yaml`.
+- Labels canónicos como estado de cada PR gestionado: `pm/policy-managed`, `pm/internal-*`, `pm/external-*`, `pm/automerge-eligible`, `pm/blocked-*`.
+- Required status check `pm-policy/ready` vía GitHub Action en `.github/workflows/pm-policy.yml` (instalada por `/pm policy install-check`). Lee labels y publica success/failure según policy efectiva. Branch protection puede exigirlo para impedir bypass desde la UI.
+- Comandos nuevos:
+  - `/pm policy show|init|validate|install-check|apply-pr|state|adopt-prs|bootstrap`
+  - `/pm cycle review-resolved <slug> <verdict>` (colapsa marker + sync)
+- `/pm sync` Step 5: para cada PR `pm/policy-managed` con `pm/automerge-eligible`, ejecuta `gh pr merge --auto`. Idempotente.
+- `/pm policy init`: wizard interactivo (con detección de branch protection, deploy provider, merge strategy) + presets `conservative|standard|solo` + `--yes` para fast-forward.
+- `auto_merge: aggressive` descartado tras review de codex (agujero de seguridad sin valor real).
 
 ### v2.2.0 (2026-06-14)
 - **Ciclo refine→ship formalizado** como protocolo humano + comandos auxiliares.
