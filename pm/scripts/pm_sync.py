@@ -214,37 +214,90 @@ def reconcile_board(repo: str, prs: list[dict], issues: dict[int, dict], dry: bo
     return moved
 
 
-def sync_specs(pm_root: Path, cfg: dict, issues: dict[int, dict], dry: bool) -> int:
-    """Specs cuyos related_issues están todos cerrados → status: shipped + updated."""
+def _pr_index_by_issue(prs: list[dict]) -> dict[int, list[int]]:
+    """Map issue_number → [pr_number, ...] descubiertos vía Closes #N."""
+    idx: dict[int, list[int]] = {}
+    for pr in prs:
+        for n in closes_issues(pr.get("body")):
+            idx.setdefault(n, [])
+            num = pr.get("number")
+            if isinstance(num, int) and num not in idx[n]:
+                idx[n].append(num)
+    return idx
+
+
+def _archive_target(archive_dir: Path, spec_path: Path, when: str) -> Path:
+    """Path destino con prefijo de fecha. Idempotente: si ya existe, devuelve None."""
+    return archive_dir / f"{when}-{spec_path.name}"
+
+
+def sync_specs(pm_root: Path, cfg: dict, issues: dict[int, dict],
+               prs: list[dict], dry: bool) -> int:
+    """Specs cuyos related_issues están todos cerrados → status: shipped.
+
+    También mantiene `issue` (singular canonical) y `prs` en frontmatter
+    al día. Archive con prefijo de fecha YYYY-MM-DD-<slug>.md, idempotente.
+    """
     archive_on_ship = cfg.get("sync", {}).get("archive_on_ship", False)
     archive_dir = pm_root / cfg["paths"]["specs_archive"]
+    pr_idx = _pr_index_by_issue(prs)
     changed = 0
     for spec_path in find_specs(pm_root, cfg):
         try:
             fm, body = parse_frontmatter(spec_path)
         except SystemExit:
             continue
-        rel = fm.get("related_issues") or []
-        if not rel or fm.get("status") == "shipped":
+        if fm.get("status") in ("shipped", "abandoned"):
             continue
-        all_closed = all(
+        rel = fm.get("related_issues") or []
+
+        # Mantener `issue` (singular) y `prs` al día — incluso si aún no se shippea.
+        fm_dirty = False
+        if not fm.get("issue") and rel:
+            fm["issue"] = rel[0]
+            fm_dirty = True
+        canonical_issue = fm.get("issue")
+        if canonical_issue:
+            existing_prs = fm.get("prs") or []
+            if not isinstance(existing_prs, list):
+                existing_prs = []
+            new_prs = [p for p in pr_idx.get(int(canonical_issue), []) if p not in existing_prs]
+            if new_prs:
+                fm["prs"] = existing_prs + new_prs
+                fm_dirty = True
+
+        ship = bool(rel) and all(
             (issues.get(int(n), {}).get("state") == "CLOSED") for n in rel
         )
-        if not all_closed:
+        if ship:
+            fm["status"] = "shipped"
+            fm["updated"] = today()
+            fm_dirty = True
+
+        if not fm_dirty:
             continue
-        # mark shipped
-        fm["status"] = "shipped"
-        fm["updated"] = today()
+
         if dry:
-            log(f"[dry] shipped: {spec_path.name}")
+            log(f"[dry] update frontmatter: {spec_path.name}"
+                + (" (shipped)" if ship else ""))
         else:
             write_frontmatter(spec_path, fm, body)
-            ok(f"shipped: {spec_path.name}")
-            if archive_on_ship:
-                archive_dir.mkdir(parents=True, exist_ok=True)
-                target = archive_dir / spec_path.name
-                spec_path.rename(target)
-                log(f"  → archive/{spec_path.name}")
+            if ship:
+                ok(f"shipped: {spec_path.name}")
+            else:
+                log(f"frontmatter actualizado: {spec_path.name}")
+
+        if ship and archive_on_ship:
+            target = _archive_target(archive_dir, spec_path, today())
+            if target.exists():
+                warn(f"  archive ya existe ({target.name}); skip rename")
+            else:
+                if dry:
+                    log(f"  [dry] → {target.relative_to(pm_root)}")
+                else:
+                    archive_dir.mkdir(parents=True, exist_ok=True)
+                    spec_path.rename(target)
+                    log(f"  → {target.relative_to(pm_root)}")
         changed += 1
     return changed
 
@@ -284,7 +337,7 @@ def main() -> None:
         log(f"  {board_moves} issues actualizados")
     if args.only in (None, "specs"):
         log("Step 3: sync specs ← board")
-        spec_changes = sync_specs(pm_root, cfg, issues, args.dry_run)
+        spec_changes = sync_specs(pm_root, cfg, issues, prs, args.dry_run)
         log(f"  {spec_changes} specs marcadas como shipped")
     if args.only in (None, "status"):
         log("Step 4: regen STATUS.md")

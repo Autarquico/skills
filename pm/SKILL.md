@@ -1,5 +1,5 @@
 ---
-name: pm
+name: pm:status
 description: Sistema PM multi-proyecto para Autarqui. Reconcilia specs, GitHub Projects y STATUS.md. Comandos sync, adopt, init. Usa GitHub MCP + gh CLI.
 license: MIT
 model: claude-opus-4-5-20251101
@@ -14,7 +14,7 @@ allowed-tools:
   - Agent
   - mcp__claude_ai_Github__*
 metadata:
-  version: 2.0.0
+  version: 2.2.0
   author: autarqui
   domains:
     - project-management
@@ -45,6 +45,13 @@ Ningún comando es prompt-driven: la lógica vive en código, el modelo solo orq
 /pm spec to-issue <slug>    # convierte spec draft en issue del board
 /pm bots process            # procesa PRs de bots: merge seguros, cierra obsoletos
 /pm bots review <pr>        # analiza major bump y genera plan de migración + tickets
+
+/pm cycle status <slug>     # ¿en qué fase del ciclo refine→ship? (read-only)
+/pm cycle next <slug>       # imprime el comando que tocaría (no ejecuta)
+/pm cycle list              # tabla de specs activos con su fase
+/pm cycle seed              # imprime refine-seed.md (plantilla para codex)
+/pm cycle review <slug>     # genera payload de review para codex (no postea)
+/pm spec abandon <slug> --reason "…"   # marca abandoned + archive + cierra issue
 ```
 
 ## Triggers
@@ -70,6 +77,121 @@ Ningún comando es prompt-driven: la lógica vive en código, el modelo solo orq
 | `/pm spec to-issue <slug>` | Convierte spec draft → issue en board, actualiza frontmatter |
 | `/pm bots process` | Triage de PRs de bots: merge patch/minor verdes, cierra superseded/stale |
 | `/pm bots review <pr>` | Analiza major bump: breaking changes → call sites → spec + sub-issues |
+
+---
+
+## Ciclo refine→ship
+
+El flujo end-to-end de un cambio. Cinco fases con un artefacto canónico
+que viaja entre ellas (la spec en `docs/specs/<slug>.md`).
+
+| Fase | Actor | Input | Output | Cómo |
+|------|-------|-------|--------|------|
+| **1. Refine** | codex (ChatGPT) | idea / problema | markdown gruesa | `/pm cycle seed` → pegar en codex → refinar |
+| **2. Adopt** | Claude Code | markdown | spec + issue | `/pm spec adopt <file.md>` → `/pm spec to-issue <slug>` |
+| **3. Develop** | Claude Code | spec, scenarios | código, PR | flujo normal; tasks no autoritativos en spec, board manda |
+| **4. Review** | codex | spec + diff PR | findings, fixes | `/pm cycle review <slug>` → pegar en codex |
+| **5. Sync** | Claude Code | board, PR merged | spec shipped, STATUS | `/pm sync` |
+
+### Principios
+
+- **`/pm cycle` es read-only.** Observa y sugiere. Las mutaciones las
+  hacen `/pm spec *` y `/pm sync` ya existentes. Si `status`, `next` o
+  `list` necesitaran mutar algo, es un bug.
+- **Autoridad determinista en conflicto:** frontmatter > board > filesystem.
+  Si las señales se contradicen, el comando reporta `unknown` con las
+  discrepancias listadas. NO infiere. Te toca decidir.
+- **Sin estado paralelo.** El `tasks.md` informal dentro de la spec no
+  es fuente de verdad — el board es el tracking vivo. Por eso `/pm cycle`
+  ni siquiera lo lee.
+- **Idempotente.** Cualquier comando se puede rerun sin efecto colateral.
+  Archive con prefijo de fecha (`YYYY-MM-DD-<slug>.md`) evita colisiones.
+
+### Estados del ciclo
+
+`refine` → `adopt` → `develop` → `review` → `sync` → `done`
+
+Más:
+- `abandoned`: spec descartada (`/pm spec abandon`); archive + label en issue.
+- `unknown`: señales contradictorias; el comando no infiere, lista evidencia.
+
+### Detección de fase (resumen)
+
+| Señal | Implica |
+|-------|---------|
+| spec no existe | `refine` |
+| `status: draft` + sin issue | `adopt` |
+| `status: active` + issue abierto + sin PR | `develop` |
+| `status: active` + PR open | `review` |
+| `status: active` + PR merged + issue closed | `sync` |
+| `status: shipped` | `done` |
+| `status: abandoned` | `abandoned` |
+| señales contradictorias | `unknown` |
+
+### Frontmatter canónico (v2.2+)
+
+```yaml
+issue: 42              # int, único — issue principal del board
+prs: [101, 103]        # lista de PRs por orden de apertura
+related_issues: [42]   # legacy; se mantiene; sync lo iguala a issue
+status: draft|active|shipped|abandoned
+```
+
+`/pm cycle` prefiere `issue`/`prs`. Si faltan, cae a `related_issues[0]`
+y a búsqueda de PRs vía `Closes #N` en GitHub.
+
+### Ejemplo end-to-end
+
+```bash
+# 1. Refine
+/pm cycle seed > /tmp/refine.md      # plantilla
+# … pegar en codex, refinar, guardar el resultado en /tmp/auth-v2.md
+
+# 2. Adopt
+/pm spec adopt /tmp/auth-v2.md       # interactivo; produce docs/specs/auth-v2.md
+/pm spec to-issue auth-v2            # crea issue #42 en el board
+
+# 3. Develop
+/pm cycle status auth-v2             # → develop
+# … implementar, abrir PR con "Closes #42"
+
+# 4. Review
+/pm cycle status auth-v2             # → review
+/pm cycle review auth-v2 --out /tmp/review.md
+# … pegar /tmp/review.md en codex; aplicar findings; mergear PR
+
+# 5. Sync
+/pm cycle status auth-v2             # → sync (PR merged, spec active)
+/pm sync                             # spec → shipped, archive con fecha
+/pm cycle status auth-v2             # → done
+```
+
+### `/pm cycle review` (payload local, no postea)
+
+Construye un markdown con:
+- Resumen del proposal de la spec
+- Scenarios Given/When/Then numerados
+- Diff del PR (`gh pr diff`)
+- Petición explícita a codex: cobertura por scenario, findings con
+  severidad (`blocker`/`major`/`minor`), gaps, veredicto
+
+Selección de PR (orden determinista):
+1. `--pr <N>` explícito
+2. `frontmatter.prs[-1]` que siga OPEN
+3. PR linked vía `Closes #<issue>`
+4. Si hay varios candidatos, falla listándolos
+
+> Postear automáticamente al PR está diferido a v2 después de validar
+> el formato con uso real.
+
+### `/pm spec abandon`
+
+Cierra una spec sin shippearla:
+- `status: abandoned` + `abandoned_at` + `abandoned_reason` en frontmatter
+- mueve a `docs/specs/archive/YYYY-MM-DD-<slug>.md`
+- cierra el issue como `not-planned` con label `abandoned` y comentario `[pm-sync]`
+
+Idempotente: si el archive target ya existe, falla en vez de sobrescribir.
 
 ---
 
@@ -972,6 +1094,17 @@ updated: 2026-05-14
 ---
 
 ## Changelog
+
+### v2.2.0 (2026-06-14)
+- **Ciclo refine→ship formalizado** como protocolo humano + comandos auxiliares.
+- `/pm cycle status|next|list|seed` — observador read-only con evidencia y confianza. Estado `unknown` cuando las señales se contradicen (no infiere).
+- `/pm cycle review <slug>` — generador de payload local para revisión con codex; selección de PR determinista; **no postea** al PR (diferido a v2 futuro).
+- `/pm spec abandon <slug> --reason "…"` — estado `abandoned` de primera clase: archive con fecha + cierre del issue como `not-planned` + label.
+- Frontmatter canónico: `issue` (singular) y `prs` (lista). `related_issues` se mantiene por compatibilidad y `sync` lo iguala.
+- Archive con prefijo de fecha: `archive/YYYY-MM-DD-<slug>.md`. Idempotente.
+- Template `spec.md` actualizado con secciones canónicas (Contexto/Scope/Criterios con Given-When-Then/Notas/Tasks no autoritativas).
+- Plantilla `refine-seed.md` para pegar en codex en la fase Refine.
+- Librería interna `scripts/pm_lib/` con `scenarios.py` (parser Given/When/Then) y `specs.py` (resolución de issue/prs canónicos).
 
 ### v2.0.0 (2026-05-14)
 - **Migración a scripts deterministas**: los 8 comandos pasan de ser prompt-driven a tener implementación Python en `scripts/` (stdlib only, `gh` CLI para GitHub I/O)

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """pm_spec_adopt — convierte markdown genérico en spec formal del sistema PM.
 
-Heurísticas para inferir type/priority/size/title del fuente. Interactivo por
-defecto: propone, el usuario confirma o edita.
+Heurísticas para inferir type/priority/size/title del fuente. Reconoce el
+formato de la plantilla refine-seed.md y preserva scenarios Given/When/Then
+encontrados en el fuente.
 
 Usage:
     pm_spec_adopt.py <source.md> [--slug SLUG] [--yes] [--keep-original]
@@ -24,22 +25,35 @@ from _common import (
 )
 
 
-# Heurísticas
-
 PRIORITY_KEYWORDS = {
     "P0": ["urgente", "crítico", "critico", "bloqueante", "blocker", "critical", "urgent"],
     "P1": ["importante", "prioritario", "important", "high priority"],
     "P2": ["nice to have", "nice-to-have", "low priority", "opcional"],
 }
 
-# Map common source headings → template sections
+# Source heading regex → canonical destination section.
 SECTION_MAP = [
-    (re.compile(r"^#+\s*(por qu[eé]|context[oa]|background|motivaci[oó]n|why)", re.I), "Contexto"),
-    (re.compile(r"^#+\s*(qu[eé] decid|decisiones?|decisions?)", re.I), "Decisiones tomadas"),
-    (re.compile(r"^#+\s*(scope|alcance|qu[eé] incluye|incluye|in scope)", re.I), "Scope"),
-    (re.compile(r"^#+\s*(criterios?|acceptance|definition of done|dod|done)", re.I), "Criterios de aceptación"),
-    (re.compile(r"^#+\s*(stack|t[eé]cnic|technical|notas?)", re.I), "Notas técnicas"),
-    (re.compile(r"^#+\s*(referencias?|references?|links?)", re.I), "Referencias"),
+    (re.compile(r"^#+\s*(contexto|problema|por qu[eé]|background|motivaci[oó]n|why)", re.I),
+     "Contexto / problema"),
+    (re.compile(r"^#+\s*(scope|alcance|qu[eé] incluye|restricciones?|no-?goals?|in scope)", re.I),
+     "Scope"),
+    (re.compile(r"^#+\s*(criterios?|acceptance|definition of done|dod)", re.I),
+     "Criterios de aceptación"),
+    (re.compile(r"^#+\s*(stack|t[eé]cnic|technical|notas?\s+t|riesgos?|risks?|preguntas?|archivos?)", re.I),
+     "Notas técnicas / riesgos"),
+    (re.compile(r"^#+\s*(tasks?|tareas?|checklist)", re.I),
+     "Tasks"),
+    (re.compile(r"^#+\s*(referencias?|references?|links?)", re.I),
+     "Referencias"),
+]
+
+CANONICAL_ORDER = [
+    "Contexto / problema",
+    "Scope",
+    "Criterios de aceptación",
+    "Notas técnicas / riesgos",
+    "Tasks",
+    "Referencias",
 ]
 
 
@@ -50,13 +64,13 @@ def slugify(text: str) -> str:
 
 
 def split_sections(md: str) -> list[tuple[str, str]]:
-    """Split markdown by H2/H3 headings. Returns [(heading, body), ...]."""
+    """Split markdown by H2 headings. Sub-headings (H3+) stay inside their parent."""
     lines = md.splitlines()
     sections: list[tuple[str, list[str]]] = []
     current_h = ""
     current_body: list[str] = []
     for ln in lines:
-        if re.match(r"^#{2,3}\s+", ln):
+        if re.match(r"^##\s+", ln):
             sections.append((current_h, current_body))
             current_h = ln
             current_body = []
@@ -70,7 +84,9 @@ def infer_title(source: str, fallback: str) -> str:
     for ln in source.splitlines():
         m = re.match(r"^#\s+(.+)$", ln)
         if m:
-            return m.group(1).strip()
+            t = m.group(1).strip()
+            if t and "<" not in t:
+                return t
     return slug_to_title(fallback)
 
 
@@ -82,28 +98,29 @@ def infer_priority(text: str) -> str:
     return "P1"
 
 
-def infer_type(sections: list[tuple[str, str]]) -> str:
-    # epic if many sub-headings or long checklist
+def count_scenarios(source: str) -> int:
+    return len(re.findall(r"^###\s+Scenario\s*:", source, re.M | re.I))
+
+
+def infer_type(sections: list[tuple[str, str]], n_scenarios: int) -> str:
     n_sub = sum(1 for h, _ in sections if h.startswith("### "))
-    checklist = sum(text.count("- [ ]") for _, text in sections)
-    if n_sub >= 4 or checklist >= 8:
+    if n_scenarios >= 5 or n_sub >= 6:
         return "epic"
     return "task"
 
 
-def infer_size(source: str, n_criteria: int) -> str:
+def infer_size(source: str, n_scenarios: int) -> str:
     n_lines = len(source.splitlines())
-    if n_lines > 400 or n_criteria > 10:
+    if n_lines > 400 or n_scenarios > 10:
         return "XL"
-    if n_lines > 200 or n_criteria > 6:
+    if n_lines > 200 or n_scenarios > 6:
         return "L"
-    if n_lines > 80 or n_criteria > 3:
+    if n_lines > 80 or n_scenarios > 3:
         return "M"
     return "S"
 
 
 def map_sections(sections: list[tuple[str, str]]) -> tuple[dict[str, str], list[tuple[str, str]]]:
-    """Returns (mapped: template_section -> body, unmapped: list)."""
     mapped: dict[str, str] = {}
     unmapped: list[tuple[str, str]] = []
     for h, body in sections:
@@ -114,26 +131,36 @@ def map_sections(sections: list[tuple[str, str]]) -> tuple[dict[str, str], list[
                 break
         if target:
             if target in mapped:
-                mapped[target] += "\n\n" + body
+                mapped[target] = mapped[target] + "\n\n" + body
             else:
                 mapped[target] = body
-        else:
-            if h:
-                unmapped.append((h, body))
+        elif h:
+            unmapped.append((h, body))
     return mapped, unmapped
 
 
-def build_body(title: str, mapped: dict[str, str], unmapped: list[tuple[str, str]]) -> str:
+def build_body(title: str, mapped: dict[str, str],
+               unmapped: list[tuple[str, str]]) -> str:
     parts = [f"# {title}", ""]
-    for sec in ["Contexto", "Decisiones tomadas", "Scope",
-                "Criterios de aceptación", "Notas técnicas", "Referencias"]:
+    for sec in CANONICAL_ORDER:
         parts.append(f"## {sec}")
         parts.append("")
         body = mapped.get(sec, "").strip()
         if body:
             parts.append(body)
         elif sec == "Criterios de aceptación":
-            parts.append("- [ ] _Pendiente de definir — no extraído del fuente_")
+            parts.append(
+                "_No se extrajeron scenarios Given/When/Then del fuente._\n\n"
+                "### Scenario: <pendiente>\n"
+                "- **Given** …\n"
+                "- **When** …\n"
+                "- **Then** …"
+            )
+        elif sec == "Tasks":
+            parts.append(
+                "Notas no autoritativas. El estado vivo es el board.\n\n"
+                "- [ ] _pendiente_"
+            )
         else:
             parts.append("_Sin contenido extraído del fuente._")
         parts.append("")
@@ -157,9 +184,9 @@ def main() -> None:
     ap.add_argument("--type", choices=["task", "epic"], help="Override tipo")
     ap.add_argument("--priority", choices=["P0", "P1", "P2"], help="Override prioridad")
     ap.add_argument("--size", choices=["XS", "S", "M", "L", "XL"], help="Override tamaño")
-    ap.add_argument("--yes", action="store_true", help="Acepta heurísticas sin confirmación")
+    ap.add_argument("--yes", action="store_true")
     ap.add_argument("--keep-original", action="store_true")
-    ap.add_argument("--force", action="store_true", help="Sobrescribe si el slug existe")
+    ap.add_argument("--force", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -181,26 +208,25 @@ def main() -> None:
     if target.exists() and not args.force:
         die(f"Ya existe: {target.relative_to(pm_root)} (usa --force o --slug otro)")
 
-    sec_type = args.type or infer_type(sections)
+    n_scenarios = count_scenarios(source)
+    sec_type = args.type or infer_type(sections, n_scenarios)
     sec_priority = args.priority or infer_priority(source)
-    n_criteria = source.count("- [ ]")
-    sec_size = args.size or infer_size(source, n_criteria)
+    sec_size = args.size or infer_size(source, n_scenarios)
 
     mapped, unmapped = map_sections(sections)
 
     log("Propuesta:")
-    log(f"  slug      {slug}")
-    log(f"  title     {title}")
-    log(f"  type      {sec_type}")
-    log(f"  priority  {sec_priority}")
-    log(f"  size      {sec_size}")
+    log(f"  slug       {slug}")
+    log(f"  title      {title}")
+    log(f"  type       {sec_type}")
+    log(f"  priority   {sec_priority}")
+    log(f"  size       {sec_size}")
+    log(f"  scenarios  {n_scenarios}")
     log("Mapeo:")
-    for sec, body in mapped.items():
-        log(f"  ✓ {sec} ({len(body.splitlines())} líneas)")
-    for sec in ["Contexto", "Decisiones tomadas", "Scope",
-                "Criterios de aceptación", "Notas técnicas", "Referencias"]:
-        if sec not in mapped:
-            log(f"  ✗ {sec} (sin mapeo del fuente)")
+    for sec in CANONICAL_ORDER:
+        marker = "✓" if sec in mapped else "✗"
+        n = len(mapped.get(sec, "").splitlines()) if sec in mapped else 0
+        log(f"  {marker} {sec} ({n} líneas)")
     if unmapped:
         log(f"  → {len(unmapped)} secciones extras irán a 'Notas adicionales'")
 
@@ -215,6 +241,8 @@ def main() -> None:
         "status": "draft",
         "priority": sec_priority,
         "size": sec_size,
+        "issue": None,
+        "prs": [],
         "related_issues": [],
         "depends_on": [],
         "supersedes": [],

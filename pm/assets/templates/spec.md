@@ -5,6 +5,8 @@ type: task
 status: draft
 priority: P1
 size: M
+issue: null
+prs: []
 related_issues: []
 depends_on: []
 supersedes: []
@@ -15,33 +17,45 @@ updated: {{ today }}
 
 # {{ title }}
 
-## Contexto
+## Contexto / problema
 
 <Por qué existe esta spec. Qué problema resuelve.>
 
-## Decisiones tomadas
-
-- <Decisión 1 con razón breve>
-- <Decisión 2>
-
 ## Scope
 
-**Cubre:**
+**Entra:**
 - <Bullet 1>
 - <Bullet 2>
 
-**Fuera de scope:**
+**No entra:**
 - <Lo que NO se hace aquí>
 
 ## Criterios de aceptación
 
-- [ ] <Criterio verificable 1>
-- [ ] <Criterio verificable 2>
-- [ ] <Criterio verificable 3>
+Cada criterio se expresa como un scenario Given/When/Then. El parser de
+`scripts/pm_lib/scenarios.py` los extrae para la fase Review.
 
-## Notas técnicas
+### Scenario: <nombre breve>
+- **Given** <precondición>
+- **When** <acción>
+- **Then** <resultado verificable>
 
-<Archivos relevantes, patrones a seguir, gotchas.>
+### Scenario: <otro caso>
+- **Given** …
+- **When** …
+- **Then** …
+
+## Notas técnicas / riesgos
+
+<Archivos relevantes, patrones a seguir, gotchas, riesgos.>
+
+## Tasks (no autoritativo — el board manda)
+
+Notas de granularidad fina mientras se desarrolla. El estado real vive en
+el GitHub Project (issue + sub-issues). `/pm sync` no los lee.
+
+- [ ] <task 1>
+- [ ] <task 2>
 
 ## Referencias
 
