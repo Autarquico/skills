@@ -14,7 +14,7 @@ allowed-tools:
   - Agent
   - mcp__claude_ai_Github__*
 metadata:
-  version: 2.3.0
+  version: 2.4.0
   author: autarqui
   domains:
     - project-management
@@ -46,6 +46,7 @@ Ningún comando es prompt-driven: la lógica vive en código, el modelo solo orq
 /pm bots process            # procesa PRs de bots: merge seguros, cierra obsoletos
 /pm bots review <pr>        # analiza major bump y genera plan de migración + tickets
 
+/pm next                    # qué toca: rankea backlog y propone (read-only)
 /pm cycle status <slug>     # ¿en qué fase del ciclo refine→ship? (read-only)
 /pm cycle next <slug>       # imprime el comando que tocaría (no ejecuta)
 /pm cycle list              # tabla de specs activos con su fase
@@ -202,6 +203,45 @@ Cierra una spec sin shippearla:
 - cierra el issue como `not-planned` con label `abandoned` y comentario `[pm-sync]`
 
 Idempotente: si el archive target ya existe, falla en vez de sobrescribir.
+
+---
+
+## Qué toca (`/pm next`, v2.4+)
+
+Read-only. Combina 4 fuentes (spec active sin PR, spec draft, board con
+spec, board sin spec), aplica ranking lexicográfico, reporta
+inconsistencias en sección separada.
+
+Ranking por gates (no fórmula lineal): `blocked → WIP → priority → size
+momentum → age → slug`. Sin weights numéricos configurables; solo
+presets cerrados.
+
+**Presets:**
+- `wip-first` (default): cerrar trabajo abierto antes que empezar nuevo.
+- `priority-first`: priority primero, sin WIP boost.
+- `small-wins`: size momentum primero.
+- `stale-first`: limpiar backlog viejo.
+
+**Configurable** en `.pm/config.yaml` bajo `next:`:
+
+```yaml
+next:
+  preset: wip-first
+  include_drafts: true
+  include_active_without_pr: true
+  include_board_statuses: [Backlog, Ready]
+  exclude_labels: [wontfix, on-hold]
+  blocking_labels: [blocked, waiting, needs-design, on-hold]
+  default_top: 5
+```
+
+**Detección de blocked:** `depends_on` en frontmatter + labels de bloqueo
+en issues. Sin parsing de task lists `- [ ] #N` en v1.
+
+**Output:** markdown legible (default) o `--json` para integración con el
+architect (AskUserQuestion). Sección de inconsistencias separada del top.
+
+**Doc humana** (diagrama + ejemplos): `~/src/autarqui.co/claudio/workflows/next.md`.
 
 ---
 
@@ -1206,6 +1246,17 @@ updated: 2026-05-14
 ---
 
 ## Changelog
+
+### v2.4.0 (2026-06-15)
+- **`/pm next`** — analizador del backlog que rankea candidatos y propone qué toca ahora.
+- Ranking lexicográfico por gates (`blocked → WIP → priority → size momentum → age → slug`); sin fórmula lineal con weights numéricos.
+- Presets cerrados: `wip-first` (default), `priority-first`, `small-wins`, `stale-first`. Sin tuning numérico expuesto.
+- 4 fuentes: spec active sin PR (WIP), spec draft, board con spec, board sin spec.
+- Detección de blocked vía `depends_on` + labels (`blocked`, `waiting`, `needs-design`, `on-hold`).
+- Sección de inconsistencias separada del top (spec/board desincronizado, PRs mergeados con spec activa, etc.).
+- Output markdown legible (default) o `--json` para integración con el architect (AskUserQuestion).
+- Degradación honesta: si el board no tiene priorities/sizes o `gh project` falla, warnings visibles y sigue con lo que hay.
+- `pm_lib/next_defaults.py` + `pm_lib/ranking.py` (funciones puras testables).
 
 ### v2.3.0 (2026-06-14)
 - **Repo policy + auto-merge condicional**: bloque `policy:` en `.pm/config.yaml` con defaults hardcoded en `pm_lib/policy_defaults.py`. Override global opcional en `~/.config/claudio/repo-policy.default.yaml`.
