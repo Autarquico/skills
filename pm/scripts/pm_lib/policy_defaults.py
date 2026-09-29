@@ -20,7 +20,11 @@ DEFAULT_POLICY: dict = {
     },
     "commits": {
         "conventional": True,
-        "co_author": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+        # Sin versión de modelo a propósito: la línea real la fija la sesión
+        # de Claude que escribe el commit, y fijar un modelo aquí solo
+        # garantiza que quede obsoleto (se quedó en "Opus 4.7"). Ningún
+        # script lee este campo hoy; es declarativo.
+        "co_author": "Claude <noreply@anthropic.com>",
         "sign": False,
     },
     "pr": {
