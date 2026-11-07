@@ -303,8 +303,19 @@ def yaml_dumps(data: Any, indent: int = 0) -> str:
         out = []
         for k, v in data.items():
             if isinstance(v, (dict, list)) and v:
-                out.append(f"{pad}{k}:")
-                out.append(yaml_dumps(v, indent + 2))
+                nested = yaml_dumps(v, indent + 2)
+                # A short scalar list comes back inline (`[309]`), and putting
+                # that on the line *after* `key:` is not YAML — it parses as a
+                # key with no value followed by a stray token, and
+                # `parse_frontmatter` then dies on the file it just wrote.
+                #
+                # Lists only. A one-key mapping is also single-line (`c: d`)
+                # and inlining that yields `b: c: d`, which is worse.
+                if isinstance(v, list) and "\n" not in nested:
+                    out.append(f"{pad}{k}: {nested.strip()}")
+                else:
+                    out.append(f"{pad}{k}:")
+                    out.append(nested)
             else:
                 out.append(f"{pad}{k}: {yaml_dumps(v)}")
         return "\n".join(out)
