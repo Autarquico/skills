@@ -1,6 +1,6 @@
 ---
-name: autarqui-video-gen
-description: Mini-estudio de producción de video declarativo. Composición vía Remotion, asset sourcing vía Pixabay/Pexels/Unsplash/Freesound (free APIs), voz local vía Piper/Coqui XTTS, subtítulos vía Whisper.cpp, motion expandido con GSAP/Three.js/Lottie/Manim. Cero dependencia de APIs de pago. Use when the user wants to create a video — explainer, launch, social, demo, anything — and needs the full production loop (brand setup → script → asset acquisition → composition → render).
+name: make:video-studio
+description: Mini-estudio de producción de video declarativo. Composición vía Remotion, asset sourcing vía Pixabay/Pexels/Unsplash/Freesound (free APIs), voz local vía Piper/Coqui XTTS, subtítulos vía Whisper.cpp, motion expandido con GSAP/Three.js/Lottie/Manim. Personajes reusables vía /vidgen createchar + animación vía Gemini Veo (image-to-video). Use when the user wants to create a video — explainer, launch, social, demo, character animation, anything — and needs the full production loop (brand setup → script → asset acquisition → composition → render).
 license: MIT
 ---
 
@@ -18,6 +18,7 @@ Cuando el usuario invoca este skill, identifica la fase y lee SOLO el director c
 | "Crea/extrae el visual style de X" | **Style** | `directors/style-director.md` |
 | "Quiero hacer un video sobre X", "ayúdame con el guion" | **Script** | `directors/script-director.md` |
 | "Necesito música/imagen/sonido para esta escena" | **Asset** | `directors/asset-director.md` |
+| `/vidgen createchar <slug>`, "crea un personaje reusable", `/vidgen animate <slug>`, "anima a <slug>" | **Character** | `directors/character-director.md` |
 | "Renderiza", "compón el video", `script.json` listo | **Render** | `directors/render-director.md` |
 
 Si la fase no está clara, pregunta al usuario antes de leer un director.

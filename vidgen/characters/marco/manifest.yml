@@ -1,0 +1,21 @@
+slug: marco
+name: Marco
+description: 1930s rubber-hose cartoon chef, Fleischer/early-Disney tradition. Cream paper, ink outlines, single mustard accent.
+voice:
+  engine: piper
+  model: es_ES-sharvard-medium
+  pitch_semitones: 1
+  language: es
+default_ratio: 9:16
+paper_color: "#F5EFE0"
+ink_color: "#1A1A1A"
+accent_color: "#E5A82B"
+anchor_default: poses/neutral_3q.png
+anchors:
+  front: poses/neutral_front.png
+  three_quarter: poses/neutral_3q.png
+style_guard: |
+  Preserve original style: cream #F5EFE0 paper background, black #1A1A1A ink outlines,
+  single mustard-yellow #E5A82B accent only. Hand-drawn 1930s Fleischer rubber-hose
+  cel animation feel. No realistic joints — limbs curve like rubber hoses. Flat fills,
+  no gradient shading. Static camera, locked-off shot.

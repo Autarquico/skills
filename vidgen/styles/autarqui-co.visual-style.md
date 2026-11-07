@@ -1,6 +1,6 @@
 ---
 name: "autarqui.co"
-version: "1.0"
+version: "1.1"
 tags:
   - editorial
   - minimalist
@@ -217,8 +217,12 @@ verbatim_lines:
   closing_quote: "El mayor fruto de la autosuficiencia es la libertad. — Epicuro"
 
 assets:
+  canonical_source: "/Users/alex/Downloads/branding/BRAND.md (master) + brand.yml (tokens)"
   reference_images:
-    - "/Users/alex/Downloads/autarquico-rebrand/dossier-branding.html (canonical brand dossier)"
+    - "/Users/alex/Downloads/branding/autarquico-rebrand/dossier-branding.html (full dossier)"
+    - "/Users/alex/Downloads/branding/autarquico-rebrand/logo-autarquico.svg (α vector)"
+    - "/Users/alex/Downloads/branding/sigma/sigma-logo.svg (σ vector)"
+    - "/Users/alex/Downloads/branding/delta/delta-logo.svg (δ vector)"
     - "https://autarqui.co (live site)"
   logos:
     - "autarquico-logo.png (α / umbrella mark)"
