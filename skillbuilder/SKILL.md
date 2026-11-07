@@ -1,5 +1,5 @@
 ---
-name: autarqui-skillfactory
+name: meta:skillbuilder
 description: "Intelligent skill router and creator. Analyzes ANY input to recommend existing skills, improve them, or create new ones. Uses deep iterative analysis with 11 thinking models, regression questioning, evolution lens, and multi-agent synthesis panel. Phase 0 triage ensures you never duplicate existing functionality."
 license: MIT
 model: claude-opus-4-5-20251101

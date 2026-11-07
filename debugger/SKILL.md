@@ -1,5 +1,5 @@
 ---
-name: debugger
+name: debug:fullstack
 description: >
   Full-stack bug investigator. Use when the user reports something broken,
   failing, or behaving unexpectedly — UI errors, 500s, exceptions, failed

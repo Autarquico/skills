@@ -1,5 +1,5 @@
 ---
-name: autarqui-branding-image-generator
+name: make:image
 description: "AI image generation Creative Director powered by Google Gemini Nano Banana models, with a local brand inventory. Use this skill for ANY request involving image creation, editing, visual asset production, or brand-aligned creative direction. Triggers on: generate an image, create a photo, edit this picture, design a logo, make a banner, visual for my brand, and all /banana commands. Handles text-to-image, image editing, multi-turn creative sessions, batch workflows, presets, and a reusable brand inventory at ~/.banana/brands/."
 argument-hint: "[generate|edit|chat|inspire|batch|brand] <idea, path, brand name, or command>"
 metadata:

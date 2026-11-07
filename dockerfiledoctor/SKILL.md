@@ -1,5 +1,5 @@
 ---
-name: autarqui-dockerfiledoc
+name: build:docker
 description: >
   Analyze and optimize Dockerfiles for image size, security, caching, and best practices.
   Use this skill whenever the user shares a Dockerfile, asks to review or improve a

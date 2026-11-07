@@ -1,5 +1,5 @@
 ---
-name: codex-review
+name: review:adversarial
 description: >
   Adversarial second-opinion code review on a git diff using the `codex` CLI.
   Use this skill BEFORE merging a PR, after completing a feature, when the
